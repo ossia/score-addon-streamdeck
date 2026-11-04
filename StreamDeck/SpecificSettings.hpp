@@ -1,5 +1,6 @@
 #pragma once
 #include <StreamDeck/Layout.hpp>
+#include <StreamDeck/Model.hpp>
 
 #include <QString>
 
@@ -17,6 +18,7 @@ struct SpecificSettings
 
   QString path;
   QString serial;
+  int vendorId{elgato_vendor_id};
   int productId{};
   int mode{Buttons};
   int brightness{70};
@@ -26,8 +28,8 @@ struct SpecificSettings
   //! Whether these settings open another deck, or another kind of deck.
   bool sameDeck(const SpecificSettings& o) const noexcept
   {
-    return path == o.path && serial == o.serial && productId == o.productId
-           && rate == o.rate;
+    return path == o.path && serial == o.serial && vendorId == o.vendorId
+           && productId == o.productId && rate == o.rate;
   }
 };
 }

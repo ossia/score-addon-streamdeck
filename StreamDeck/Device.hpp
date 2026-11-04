@@ -33,6 +33,7 @@ public:
   bool reconnect() override;
   void disconnect() override;
   ossia::net::device_base* getDevice() const override;
+  void setupContextMenu(QMenu& menu) const override;
 
   SpecificSettings specificSettings() const;
   //! Applies new settings without reconnecting when they open the same deck.
@@ -51,6 +52,7 @@ private:
   void detachHardware();
   void onUnplugged();
   void setupRemoteControl(bool on);
+  bool updateDeckAddresses();
 
   std::unique_ptr<Engine> m_engine;
   std::shared_ptr<FrameSink> m_sink;

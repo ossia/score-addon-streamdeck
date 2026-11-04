@@ -48,9 +48,13 @@ class ButtonEditor final : public QWidget
 public:
   ButtonEditor(const score::DocumentContext& ctx, QWidget* parent = nullptr);
 
-  void showButton(const QString& title, const Button& b, QStringList pages);
-  void showDial(const QString& title, const Dial& d, QStringList pages);
+  //! defaultName: for the addresses its actions and feedbacks create.
+  void showButton(
+      const QString& title, const Button& b, QStringList pages, QString defaultName);
+  void showDial(
+      const QString& title, const Dial& d, QStringList pages, QString defaultName);
   void showMessage(const QString& text);
+  void setScriptError(const QString& error);
 
   Button button() const;
   Dial dial() const;
@@ -68,6 +72,8 @@ private:
   QLabel* m_message{};
 
   QLabel* m_buttonTitle{};
+  QLabel* m_buttonError{};
+  QLabel* m_dialError{};
   TextField* m_text{};
   ColorButton* m_textColor{};
   ColorButton* m_background{};

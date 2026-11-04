@@ -81,7 +81,8 @@ ProtocolSettingsWidget::ProtocolSettingsWidget(QWidget* parent)
     const auto info = m_decks->itemData(idx).toStringList();
     set.path = info.value(0);
     set.serial = info.value(1);
-    set.productId = info.value(2).toInt();
+    set.vendorId = info.value(2).toInt();
+    set.productId = info.value(3).toInt();
     m_settings.deviceSpecificSettings = QVariant::fromValue(set);
     updateDetails();
   });
@@ -104,23 +105,54 @@ void ProtocolSettingsWidget::rescan()
     if((!set.serial.isEmpty() && serial == set.serial) || path == set.path)
       selected = m_decks->count();
     m_decks->addItem(
-        deckLabel(d), QStringList{path, serial, QString::number(d.product_id)});
+        deckLabel(d), QStringList{
+                          path, serial, QString::number(d.vendor_id),
+                          QString::number(d.product_id)});
   }
-  if(selected < 0 && !set.path.isEmpty())
+  if(selected < 0 && (!set.path.isEmpty() || !set.serial.isEmpty()))
   {
     selected = m_decks->count();
     m_decks->addItem(
         tr("%1 (not connected)").arg(set.serial.isEmpty() ? set.path : set.serial),
-        QStringList{set.path, set.serial, QString::number(set.productId)});
+        QStringList{
+            set.path, set.serial, QString::number(set.vendorId),
+            QString::number(set.productId)});
   }
+
+  if(m_decks->count() > 0)
+    m_decks->insertSeparator(m_decks->count());
+  for(const auto& m : models())
+  {
+    if(selected < 0 && set.path.isEmpty() && set.serial.isEmpty()
+       && m.vendorId == set.vendorId && m.productId == set.productId)
+      selected = m_decks->count();
+    m_decks->addItem(
+        tr("Any %1").arg(QString::fromUtf8(m.name.data(), m.name.size())),
+        QStringList{
+            QString{}, QString{}, QString::number(m.vendorId),
+            QString::number(m.productId)});
+  }
+  const bool fallback = selected < 0;
+  if(fallback)
+    selected = m_decks->count() > 0 ? 0 : -1;
   m_decks->setCurrentIndex(selected);
+  if(fallback && selected >= 0)
+  {
+    auto s = m_settings.deviceSpecificSettings.value<SpecificSettings>();
+    const auto info = m_decks->itemData(selected).toStringList();
+    s.path = info.value(0);
+    s.serial = info.value(1);
+    s.vendorId = info.value(2).toInt();
+    s.productId = info.value(3).toInt();
+    m_settings.deviceSpecificSettings = QVariant::fromValue(s);
+  }
   updateDetails();
 }
 
 void ProtocolSettingsWidget::updateDetails()
 {
   const auto set = m_settings.deviceSpecificSettings.value<SpecificSettings>();
-  const Model* m = findModel(uint16_t(set.productId));
+  const Model* m = findModel(uint16_t(set.vendorId), uint16_t(set.productId));
   if(!m)
   {
     m_details->setText(tr("No Stream Deck connected."));

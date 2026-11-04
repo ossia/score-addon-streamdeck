@@ -3,6 +3,8 @@
 #include <State/Value.hpp>
 #include <State/ValueConversion.hpp>
 
+#include <ossia/network/base/name_validation.hpp>
+
 #include <QJsonArray>
 
 namespace StreamDeck
@@ -30,6 +32,55 @@ void Layout::normalize(int keys, int dials)
     if(int(p.dials.size()) < dials)
       p.dials.resize(dials);
   }
+}
+
+std::vector<std::pair<QString, ossia::val_type>> Layout::deckAddresses() const
+{
+  std::vector<std::pair<QString, ossia::val_type>> res;
+  auto add = [&](const QString& path, ossia::val_type t) {
+    if(path.endsWith(QChar{'/'}))
+      return;
+    for(auto& [p, type] : res)
+      if(p == path)
+      {
+        if(t == ossia::val_type::BOOL || type == ossia::val_type::IMPULSE)
+          type = t;
+        return;
+      }
+    res.emplace_back(path, t);
+  };
+  auto actions = [&](const std::vector<Action>& list) {
+    for(const auto& a : list)
+      if(a.type == Action::Trigger && !a.address.isEmpty())
+        add(a.deckAddress(), a.toggle ? ossia::val_type::BOOL : ossia::val_type::IMPULSE);
+  };
+  for(const auto& p : pages)
+  {
+    for(const auto& b : p.buttons)
+    {
+      actions(b.press);
+      actions(b.release);
+      for(const auto& f : b.feedbacks)
+        if(f.deckInput && f.needsAddress() && !f.address.isEmpty())
+          add(f.deckAddress(),
+              f.needsValue() ? ossia::val_type::FLOAT : ossia::val_type::BOOL);
+    }
+    for(const auto& d : p.dials)
+      actions(d.press);
+  }
+  return res;
+}
+
+QString deckPath(const QString& s)
+{
+  QStringList parts;
+  for(const auto& part : s.split(QChar{'/'}, Qt::SkipEmptyParts))
+  {
+    auto name = ossia::net::sanitize_name(part.trimmed().toStdString());
+    if(!name.empty())
+      parts.push_back(QString::fromStdString(name));
+  }
+  return parts.join(QChar{'/'});
 }
 
 QString valueToString(const ossia::value& v)
@@ -146,9 +197,9 @@ StyleOverride overrideFromJson(const QJsonObject& o)
 }
 
 constexpr const char* action_names[]
-    = {"send", "toggle", "step", "page", "next_page", "previous_page"};
+    = {"send", "toggle", "step", "page", "next_page", "previous_page", "script", "trigger"};
 constexpr const char* condition_names[]
-    = {"true", "false", "equal", "not_equal", "greater", "less"};
+    = {"true", "false", "equal", "not_equal", "greater", "less", "script"};
 
 template <std::size_t N>
 int indexOf(const char* const (&names)[N], const QString& s)
@@ -174,6 +225,14 @@ QJsonArray toJson(const std::vector<Action>& actions)
       o["step"] = a.step;
     if(a.type == Action::GotoPage)
       o["page"] = a.page;
+    if(a.type == Action::Script)
+      o["script"] = a.script;
+    if(a.type == Action::Trigger)
+    {
+      o["address"] = a.address;
+      if(a.toggle)
+        o["toggle"] = true;
+    }
     if(a.delay > 0)
       o["delay"] = a.delay;
     arr.append(o);
@@ -193,6 +252,8 @@ std::vector<Action> actionsFromJson(const QJsonArray& arr)
     a.value = valueFromString(o["value"].toString());
     a.step = o["step"].toDouble(1.);
     a.page = o["page"].toInt();
+    a.script = o["script"].toString();
+    a.toggle = o["toggle"].toBool();
     a.delay = o["delay"].toInt();
     res.push_back(std::move(a));
   }
@@ -220,7 +281,12 @@ QJsonObject toJson(const Button& b)
     for(const auto& f : b.feedbacks)
     {
       QJsonObject fo;
-      fo["address"] = f.address;
+      if(f.needsAddress())
+        fo["address"] = f.address;
+      if(f.deckInput)
+        fo["input"] = true;
+      else
+        fo["script"] = f.script;
       fo["condition"] = condition_names[f.condition];
       if(f.needsValue())
         fo["value"] = valueToString(f.value);
@@ -248,6 +314,8 @@ Button buttonFromJson(const QJsonObject& o)
     f.address = fo["address"].toString();
     f.condition = Feedback::Condition(indexOf(condition_names, fo["condition"].toString()));
     f.value = valueFromString(fo["value"].toString());
+    f.script = fo["script"].toString();
+    f.deckInput = fo["input"].toBool();
     f.style = overrideFromJson(fo["style"].toObject());
     b.feedbacks.push_back(std::move(f));
   }

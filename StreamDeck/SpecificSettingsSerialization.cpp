@@ -21,8 +21,8 @@ StreamDeck::Layout layoutFromBytes(const QByteArray& b)
 template <>
 void DataStreamReader::read(const StreamDeck::SpecificSettings& n)
 {
-  m_stream << n.path << n.serial << n.productId << n.mode << n.brightness << n.rate
-           << layoutBytes(n.layout);
+  m_stream << n.path << n.serial << n.vendorId << n.productId << n.mode << n.brightness
+           << n.rate << layoutBytes(n.layout);
   insertDelimiter();
 }
 
@@ -30,8 +30,8 @@ template <>
 void DataStreamWriter::write(StreamDeck::SpecificSettings& n)
 {
   QByteArray layout;
-  m_stream >> n.path >> n.serial >> n.productId >> n.mode >> n.brightness >> n.rate
-      >> layout;
+  m_stream >> n.path >> n.serial >> n.vendorId >> n.productId >> n.mode >> n.brightness
+      >> n.rate >> layout;
   n.layout = layoutFromBytes(layout);
   checkDelimiter();
 }
@@ -41,6 +41,7 @@ void JSONReader::read(const StreamDeck::SpecificSettings& n)
 {
   obj["Path"] = n.path;
   obj["Serial"] = n.serial;
+  obj["VendorId"] = n.vendorId;
   obj["ProductId"] = n.productId;
   obj["Mode"] = n.mode;
   obj["Brightness"] = n.brightness;
@@ -53,6 +54,9 @@ void JSONWriter::write(StreamDeck::SpecificSettings& n)
 {
   n.path = obj["Path"].toString();
   n.serial = obj["Serial"].toString();
+  n.vendorId = StreamDeck::elgato_vendor_id;
+  if(auto v = obj.tryGet("VendorId"))
+    n.vendorId = v->toInt();
   n.productId = obj["ProductId"].toInt();
   if(auto v = obj.tryGet("Mode"))
     n.mode = v->toInt();

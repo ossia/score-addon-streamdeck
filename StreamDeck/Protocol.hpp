@@ -36,6 +36,13 @@ public:
   bool updatePages(int count);
   void setInfo(const std::string& serial, const std::string& firmware);
 
+  //! Main thread. Creates the addresses of the layout's triggers and inputs,
+  //! removes those it no longer has. True if the tree changed.
+  bool updateDeckAddresses(const std::vector<std::pair<std::string, ossia::val_type>>& addrs);
+  ossia::net::parameter_base* deckParameter(const std::string& path) const;
+  //! Sets a value of the tree and tells score about it.
+  void write(ossia::net::parameter_base* p, const ossia::value& v) { notify(p, v); }
+
   void notifyKey(int key, bool pressed);
   void notifyButton(int page, int key, bool pressed);
   void notifyPage(int page);
@@ -56,6 +63,7 @@ private:
     TextColor,
     Image,
     EncoderPosition,
+    DeckAddress,
   };
   struct Binding
   {
@@ -84,6 +92,7 @@ private:
   std::vector<ossia::net::parameter_base*> m_encoderTurn;
   std::vector<ossia::net::parameter_base*> m_encoderPosition;
   std::vector<int> m_positions;
+  std::vector<std::pair<std::string, ossia::net::parameter_base*>> m_deckAddresses;
   ossia::net::parameter_base* m_tap{};
   ossia::net::parameter_base* m_longPress{};
   ossia::net::parameter_base* m_swipe{};

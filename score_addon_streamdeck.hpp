@@ -5,6 +5,7 @@
 #include <score/plugins/InterfaceList.hpp>
 #include <score/plugins/qt_interfaces/CommandFactory_QtInterface.hpp>
 #include <score/plugins/qt_interfaces/FactoryInterface_QtInterface.hpp>
+#include <score/plugins/qt_interfaces/GUIApplicationPlugin_QtInterface.hpp>
 #include <score/plugins/qt_interfaces/PluginRequirements_QtInterface.hpp>
 
 #include <utility>
@@ -14,6 +15,7 @@ class score_addon_streamdeck final
     : public score::Plugin_QtInterface
     , public score::FactoryInterface_QtInterface
     , public score::CommandFactory_QtInterface
+    , public score::ApplicationPlugin_QtInterface
 {
   SCORE_PLUGIN_METADATA(1, "a11ec039-8e7a-48ac-be34-8cdc2d240ce8")
 
@@ -27,4 +29,7 @@ private:
       const score::InterfaceKey& key) const override;
 
   std::pair<const CommandGroupKey, CommandGeneratorMap> make_commands() override;
+
+  score::GUIApplicationPlugin*
+  make_guiApplicationPlugin(const score::GUIApplicationContext& app) override;
 };

@@ -14,8 +14,7 @@
 
 #include <StreamDeck/Deck.hpp>
 #include <StreamDeck/RemoteControl.hpp>
-
-#include <QRegularExpression>
+#include <StreamDeck/Script.hpp>
 
 #include <cmath>
 
@@ -65,6 +64,7 @@ QString displayValue(const ossia::value& v)
 Engine::Engine(const score::DocumentContext& ctx, const Model& model)
     : m_ctx{ctx}
     , m_model{model}
+    , m_scripts{std::make_unique<Scripts>(*this)}
 {
   m_displayed.resize(::StreamDeck::faceCount(model));
   m_keys.resize(model.keyCount());
@@ -84,11 +84,26 @@ void Engine::setLayout(Layout l)
   if(l == m_layout)
     return;
   m_layout = std::move(l);
-  if(m_page >= int(m_layout.pages.size()))
-    m_page = int(m_layout.pages.size()) - 1;
+  const int pages = int(m_layout.pages.size());
+  std::erase_if(m_toggles, [pages](const auto& t) { return t.first.first >= pages; });
+  std::erase_if(m_overrides, [pages](const auto& t) { return t.first.first >= pages; });
+  std::erase_if(m_errors, [pages](const auto& t) { return std::get<0>(t.first) >= pages; });
+  for(auto& k : m_keys)
+    if(k.page >= pages)
+      k.fired = false;
+
+  const bool clamped = m_page >= pages;
+  if(clamped)
+    m_page = pages - 1;
   applyTextureMask();
   refresh();
   layoutChanged();
+  if(clamped)
+  {
+    if(onPage)
+      onPage(m_page);
+    pageChanged(m_page);
+  }
 }
 
 void Engine::setPage(int page)
@@ -102,6 +117,30 @@ void Engine::setPage(int page)
   if(onPage)
     onPage(m_page);
   pageChanged(m_page);
+}
+
+void Engine::shutdown()
+{
+  deckParameter = {};
+  writeDeck = {};
+  m_shutdown = true;
+  m_timer.stop();
+  m_deck.reset();
+  m_remote = nullptr;
+  onKey = {};
+  onButton = {};
+  onPage = {};
+}
+
+void Engine::nextPage()
+{
+  setPage((m_page + 1) % int(m_layout.pages.size()));
+}
+
+void Engine::previousPage()
+{
+  const int n = int(m_layout.pages.size());
+  setPage((m_page + n - 1) % n);
 }
 
 void Engine::setBrightness(int b)
@@ -176,6 +215,8 @@ void Engine::setOverride(int page, int key, const StyleOverride& o)
 
 void Engine::press(int key, bool down)
 {
+  if(m_shutdown)
+    return;
   if(key < 0 || key >= int(m_keys.size()))
     return;
   auto& k = m_keys[key];
@@ -198,14 +239,20 @@ void Engine::press(int key, bool down)
   if(onButton)
     onButton(page, key, down);
 
-  const auto& b = m_layout.pages[page].buttons[key];
   const int gen = ++k.generation;
+  if(page >= int(m_layout.pages.size()))
+  {
+    k.fired = false;
+    refresh();
+    return;
+  }
+  const int hold = m_layout.pages[page].buttons[key].hold;
   if(down)
   {
     k.fired = false;
-    if(b.hold > 0)
+    if(hold > 0)
     {
-      QTimer::singleShot(b.hold, this, [this, key, gen, page] {
+      QTimer::singleShot(hold, this, [this, key, gen, page] {
         auto& k = m_keys[key];
         if(k.generation == gen && k.down)
         {
@@ -229,6 +276,8 @@ void Engine::press(int key, bool down)
 
 void Engine::fire(int page, int key, bool down)
 {
+  if(m_shutdown)
+    return;
   if(page >= int(m_layout.pages.size()))
     return;
   const auto& b = m_layout.pages[page].buttons[key];
@@ -238,17 +287,19 @@ void Engine::fire(int page, int key, bool down)
       return;
     bool& on = m_toggles[{page, key}];
     on = !on;
-    run(on ? b.press : b.release);
+    run(page, key, on ? b.press : b.release);
   }
   else
   {
-    run(down ? b.press : b.release);
+    run(page, key, down ? b.press : b.release);
   }
   refresh();
 }
 
 void Engine::pressDial(int dial, bool down)
 {
+  if(m_shutdown)
+    return;
   if(m_remote)
   {
     m_remote->onEncoderPress(dial, down);
@@ -256,11 +307,13 @@ void Engine::pressDial(int dial, bool down)
   }
   if(!down || dial < 0 || dial >= m_model.encoders)
     return;
-  run(m_layout.pages[m_page].dials[dial].press);
+  run(m_page, m_model.keyCount() + dial, m_layout.pages[m_page].dials[dial].press);
 }
 
 void Engine::turnDial(int dial, int delta)
 {
+  if(m_shutdown)
+    return;
   if(m_remote)
   {
     m_remote->onEncoderTurn(dial, delta);
@@ -271,21 +324,27 @@ void Engine::turnDial(int dial, int delta)
   const auto& d = m_layout.pages[m_page].dials[dial];
   if(d.address.isEmpty())
     return;
-  runNow({.type = Action::Step, .address = d.address, .step = d.step * delta});
+  runNow(
+      m_page, m_model.keyCount() + dial,
+      {.type = Action::Step, .address = d.address, .step = d.step * delta});
   refresh();
 }
 
-void Engine::run(const std::vector<Action>& actions)
+void Engine::run(int page, int face, std::vector<Action> actions)
 {
+  if(m_shutdown)
+    return;
   for(const auto& a : actions)
   {
     if(a.delay > 0)
-      QTimer::singleShot(a.delay, this, [this, a] {
-        runNow(a);
+      QTimer::singleShot(a.delay, this, [this, page, face, a] {
+        if(m_shutdown)
+          return;
+        runNow(page, face, a);
         refresh();
       });
     else
-      runNow(a);
+      runNow(page, face, a);
   }
 }
 
@@ -314,20 +373,35 @@ resolveAddress(const score::DocumentContext& ctx, const QString& address)
   return node ? node->get_parameter() : nullptr;
 }
 
-void Engine::runNow(const Action& a)
+void Engine::runNow(int page, int face, const Action& a)
 {
+  if(m_shutdown)
+    return;
   switch(a.type)
   {
     case Action::GotoPage:
       setPage(a.page);
       return;
     case Action::NextPage:
-      setPage((m_page + 1) % int(m_layout.pages.size()));
+      nextPage();
       return;
     case Action::PreviousPage:
-      setPage(
-          (m_page + int(m_layout.pages.size()) - 1) % int(m_layout.pages.size()));
+      previousPage();
       return;
+    case Action::Trigger: {
+      auto p = deckParameter ? deckParameter(a.deckAddress()) : nullptr;
+      if(p && writeDeck)
+        writeDeck(
+            p, a.toggle ? ossia::value{!ossia::convert<bool>(p->value())}
+                        : ossia::value{ossia::impulse{}});
+      return;
+    }
+    case Action::Script: {
+      QString err;
+      m_scripts->run(a.script, face, err);
+      setError(page, face, 2, err);
+      return;
+    }
     default:
       break;
   }
@@ -370,9 +444,18 @@ void Engine::runNow(const Action& a)
   }
 }
 
-bool Engine::evaluate(const Feedback& f) const
+bool Engine::evaluate(int page, int face, const Feedback& f)
 {
-  auto p = resolve(f.address);
+  if(f.condition == Feedback::Script)
+  {
+    QString err;
+    const bool res = m_scripts->condition(f.script, face, err);
+    setError(page, face, 1, err);
+    return res;
+  }
+
+  auto p = f.deckInput ? (deckParameter ? deckParameter(f.deckAddress()) : nullptr)
+                       : resolve(f.address);
   if(!p)
     return false;
   const auto v = p->value();
@@ -425,81 +508,112 @@ bool Engine::evaluate(const Feedback& f) const
   }
 }
 
-QString Engine::expand(const QString& text) const
+void Engine::setError(int page, int face, int slot, const QString& e)
 {
-  if(!text.contains(QStringLiteral("$(")))
-    return text;
+  const auto k = std::make_tuple(page, face, slot);
+  if(e.isEmpty())
+    m_errors.erase(k);
+  else
+    m_errors[k] = e;
+}
 
-  static const QRegularExpression var{QStringLiteral(R"(\$\(([^)]+)\))")};
+QString Engine::scriptError(int page, int face) const
+{
   QString res;
-  qsizetype last = 0;
-  for(auto it = var.globalMatch(text); it.hasNext();)
-  {
-    const auto m = it.next();
-    res += text.mid(last, m.capturedStart() - last);
-    const auto name = m.captured(1).trimmed();
-    if(name == QStringLiteral("page"))
-      res += m_layout.pages[m_page].name;
-    else if(name == QStringLiteral("page_number"))
-      res += QString::number(m_page + 1);
-    else if(auto p = resolve(name))
-      res += displayValue(p->value());
-    else
-      res += QStringLiteral("?");
-    last = m.capturedEnd();
-  }
-  res += text.mid(last);
+  for(int slot = 0; slot < 3; slot++)
+    if(auto it = m_errors.find({page, face, slot}); it != m_errors.end())
+      res += (res.isEmpty() ? QString{} : QStringLiteral("\n")) + it->second;
   return res;
 }
 
-Style Engine::computeFace(int key) const
+Style Engine::preview(int page, int face)
 {
-  const auto& b = m_layout.pages[m_page].buttons[key];
+  const int keys = m_model.keyCount();
+  if(page < 0 || page >= int(m_layout.pages.size()) || face < 0
+     || face >= keys + m_model.encoders)
+    return {};
+  if(page == m_page && !m_remote && face < int(m_displayed.size()))
+    return m_displayed[face];
+  return face < keys ? computeFace(page, face) : computeDial(page, face - keys);
+}
+
+Style Engine::computeFace(int page, int key)
+{
+  const auto& b = m_layout.pages[page].buttons[key];
   Style s = b.style;
-  if(auto it = m_overrides.find({m_page, key}); it != m_overrides.end())
+  if(auto it = m_overrides.find({page, key}); it != m_overrides.end())
     it->second.applyTo(s);
 
   bool active = false;
   if(b.mode == Button::Toggle)
   {
-    auto it = m_toggles.find({m_page, key});
+    auto it = m_toggles.find({page, key});
     active = it != m_toggles.end() && it->second;
   }
   else
   {
-    active = m_keys[key].down && m_keys[key].page == m_page;
+    active = page == m_page && m_keys[key].down && m_keys[key].page == m_page;
+  }
+  if(!active && deckParameter)
+  {
+    for(const auto& a : b.press)
+      if(a.type == Action::Trigger && a.toggle)
+        if(auto p = deckParameter(a.deckAddress()); p && ossia::convert<bool>(p->value()))
+          active = true;
   }
   if(active)
     b.active.applyTo(s);
 
   for(const auto& f : b.feedbacks)
-    if(evaluate(f))
+    if(evaluate(page, key, f))
       f.style.applyTo(s);
 
-  s.text = expand(s.text);
+  QString err;
+  s.text = m_scripts->text(s.text, key, err);
+  setError(page, key, 0, err);
   return s;
 }
 
-Style Engine::computeDial(int dial) const
+Style Engine::computeDial(int page, int dial)
 {
-  const auto& d = m_layout.pages[m_page].dials[dial];
+  const auto& d = m_layout.pages[page].dials[dial];
+  const int face = m_model.keyCount() + dial;
   Style s = d.style;
   if(s.text.isEmpty() && !d.address.isEmpty())
   {
     const auto addr = State::parseAddress(d.address);
-    const auto name = addr && !addr->path.isEmpty() ? addr->path.back() : d.address;
-    s.text = name + QStringLiteral("\n$(") + d.address + QStringLiteral(")");
+    s.text = addr && !addr->path.isEmpty() ? addr->path.back() : d.address;
+    if(auto p = resolve(d.address))
+      s.text += QStringLiteral("\n") + displayValue(p->value());
+    setError(page, face, 0, {});
   }
-  s.text = expand(s.text);
+  else
+  {
+    QString err;
+    s.text = m_scripts->text(s.text, face, err);
+    setError(page, face, 0, err);
+  }
   return s;
 }
 
 void Engine::refresh()
 {
-  if(m_remote)
+  if(m_remote || m_shutdown)
     return;
-  const int keys = m_model.keyCount();
-  for(int i = 0; i < int(m_displayed.size()); i++)
-    display(i, i < keys ? computeFace(i) : computeDial(i - keys));
+  if(m_refreshing)
+  {
+    m_refreshAgain = true;
+    return;
+  }
+  m_refreshing = true;
+  int passes = 0;
+  do
+  {
+    m_refreshAgain = false;
+    const int keys = m_model.keyCount();
+    for(int i = 0; i < int(m_displayed.size()); i++)
+      display(i, i < keys ? computeFace(m_page, i) : computeDial(m_page, i - keys));
+  } while(m_refreshAgain && ++passes < 3);
+  m_refreshing = false;
 }
 }

@@ -4,18 +4,21 @@
 
 #include <Process/Dataflow/AddressAccessorEditWidget.hpp>
 
-#include <StreamDeck/Panel/ColorButton.hpp>
-#include <StreamDeck/Panel/WheelGuard.hpp>
+#include <StreamDeck/Editor/ButtonEditor.hpp>
+#include <StreamDeck/Editor/ColorButton.hpp>
+#include <StreamDeck/Editor/WheelGuard.hpp>
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QFontDatabase>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QPushButton>
 #include <QSpinBox>
 #include <QTimer>
 #include <QToolButton>
@@ -37,13 +40,24 @@ QFrame* rowFrame(QWidget* parent)
   return f;
 }
 
-QToolButton* smallButton(const QString& text, const QString& tip, QWidget* parent)
+QPushButton* smallButton(const QString& text, const QString& tip, QWidget* parent)
 {
-  auto b = new QToolButton{parent};
-  b->setText(text);
+  auto b = new QPushButton{text, parent};
   b->setToolTip(tip);
-  b->setAutoRaise(true);
+  const int h = b->fontMetrics().height() + 8;
+  b->setFixedSize(h + 4, h);
   return b;
+}
+
+QLineEdit* deckNameEdit(const QString& prefix, const QString& name, QWidget* parent)
+{
+  auto e = new QLineEdit{parent};
+  e->setText(name);
+  e->setPlaceholderText(QObject::tr("name"));
+  e->setToolTip(QObject::tr(
+      "The address is created in the deck's tree, at %1<name>: map it to anything, "
+      "differently along the score.").arg(prefix));
+  return e;
 }
 
 Process::AddressAccessorEditWidget*
@@ -61,6 +75,9 @@ void clearLayout(QVBoxLayout* l)
   {
     if(auto w = item->widget())
     {
+      w->blockSignals(true);
+      for(auto child : w->findChildren<QObject*>())
+        child->blockSignals(true);
       w->hide();
       w->deleteLater();
     }
@@ -75,6 +92,8 @@ const char* const action_labels[] = {
     QT_TRANSLATE_NOOP("StreamDeck", "Go to page"),
     QT_TRANSLATE_NOOP("StreamDeck", "Next page"),
     QT_TRANSLATE_NOOP("StreamDeck", "Previous page"),
+    QT_TRANSLATE_NOOP("StreamDeck", "Script"),
+    QT_TRANSLATE_NOOP("StreamDeck", "Trigger"),
 };
 
 const char* const condition_labels[] = {
@@ -84,7 +103,20 @@ const char* const condition_labels[] = {
     QT_TRANSLATE_NOOP("StreamDeck", "≠"),
     QT_TRANSLATE_NOOP("StreamDeck", ">"),
     QT_TRANSLATE_NOOP("StreamDeck", "<"),
+    QT_TRANSLATE_NOOP("StreamDeck", "script is true"),
 };
+
+TextField* codeEditor(const QString& code, const QString& placeholder, QWidget* parent)
+{
+  auto t = new TextField{parent};
+  t->setTabChangesFocus(true);
+  auto f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+  t->setFont(f);
+  t->setFixedHeight(QFontMetrics{f}.lineSpacing() * 4 + 10);
+  t->setPlaceholderText(placeholder);
+  t->setPlainText(code);
+  return t;
+}
 }
 
 ActionList::ActionList(const score::DocumentContext& ctx, QWidget* parent)
@@ -98,12 +130,21 @@ ActionList::ActionList(const score::DocumentContext& ctx, QWidget* parent)
   m_rows->setSpacing(2);
   lay->addLayout(m_rows);
 
-  auto add = new QToolButton{this};
-  add->setText(tr("Add action"));
-  add->setPopupMode(QToolButton::InstantPopup);
-  add->setToolButtonStyle(Qt::ToolButtonTextOnly);
+  auto add = new QPushButton{tr("Add an action"), this};
   auto menu = new QMenu{add};
-  for(int t = 0; t <= Action::PreviousPage; t++)
+  auto addTrigger = [this](bool toggle) {
+    m_actions.push_back({.type = Action::Trigger, .address = m_defaultName, .toggle = toggle});
+    rebuild();
+    commit();
+  };
+  menu->addAction(tr("Trigger: an impulse at an address of the deck"), this, [=] {
+    addTrigger(false);
+  });
+  menu->addAction(tr("Trigger: an on / off address of the deck"), this, [=] {
+    addTrigger(true);
+  });
+  menu->addSeparator();
+  for(int t = 0; t <= Action::Script; t++)
   {
     menu->addAction(tr(action_labels[t]), this, [this, t] {
       m_actions.push_back({.type = Action::Type(t)});
@@ -131,8 +172,10 @@ ActionList::ActionList(const score::DocumentContext& ctx, QWidget* parent)
   lay->addWidget(add, 0, Qt::AlignLeft);
 }
 
-void ActionList::setActions(std::vector<Action> actions, QStringList pages)
+void ActionList::setActions(
+    std::vector<Action> actions, QStringList pages, QString defaultName)
 {
+  m_defaultName = std::move(defaultName);
   if(actions == m_actions && pages == m_pages)
     return;
   m_actions = std::move(actions);
@@ -196,21 +239,21 @@ QWidget* ActionList::makeRow(int i)
   auto del = smallButton(QStringLiteral("✕"), tr("Remove"), row);
   up->setEnabled(i > 0);
   down->setEnabled(i + 1 < int(m_actions.size()));
-  connect(up, &QToolButton::clicked, this, [this, i] {
+  connect(up, &QPushButton::clicked, this, [this, i] {
     std::swap(m_actions[i], m_actions[i - 1]);
     QTimer::singleShot(0, this, [this] {
       rebuild();
       commit();
     });
   });
-  connect(down, &QToolButton::clicked, this, [this, i] {
+  connect(down, &QPushButton::clicked, this, [this, i] {
     std::swap(m_actions[i], m_actions[i + 1]);
     QTimer::singleShot(0, this, [this] {
       rebuild();
       commit();
     });
   });
-  connect(del, &QToolButton::clicked, this, [this, i] {
+  connect(del, &QPushButton::clicked, this, [this, i] {
     m_actions.erase(m_actions.begin() + i);
     QTimer::singleShot(0, this, [this] {
       rebuild();
@@ -265,6 +308,53 @@ QWidget* ActionList::makeRow(int i)
       grid->addWidget(step, line++, 0, 1, 3);
       break;
     }
+    case Action::Trigger: {
+      auto lay = new QHBoxLayout;
+      lay->addWidget(new QLabel{QStringLiteral("deck:/actions/"), row});
+      auto name = deckNameEdit(QStringLiteral("deck:/actions/"), a.address, row);
+      lay->addWidget(name, 1);
+      auto mode = new QComboBox{row};
+      mode->addItem(tr("Impulse"));
+      mode->addItem(tr("On / off"));
+      mode->setToolTip(
+          tr("Impulse: each press sends an impulse.\nOn / off: each press switches a "
+             "boolean, and the key looks pressed while it is on."));
+      mode->setCurrentIndex(a.toggle ? 1 : 0);
+      lay->addWidget(mode);
+      connect(name, &QLineEdit::editingFinished, this, [this, i, name] {
+        const auto path = deckPath(name->text());
+        if(name->text() != path)
+          name->setText(path);
+        if(m_actions[i].address == path)
+          return;
+        m_actions[i].address = path;
+        commit();
+      });
+      connect(mode, &QComboBox::currentIndexChanged, this, [this, i](int m) {
+        m_actions[i].toggle = m == 1;
+        commit();
+      });
+      grid->addLayout(lay, line++, 0, 1, 3);
+      break;
+    }
+    case Action::Script: {
+      auto code = codeEditor(
+          a.script,
+          tr("JavaScript, run in the console's engine. For instance:\n"
+             "Device.write(\"osc:/light\", 1);\n"
+             "if(deck.page() == 1) deck.nextPage();"),
+          row);
+      connect(
+          code, &TextField::editingFinished, this,
+          [this, i, code] {
+        if(m_actions[i].script == code->toPlainText())
+          return;
+        m_actions[i].script = code->toPlainText();
+        commit();
+      });
+      grid->addWidget(code, line++, 0, 1, 3);
+      break;
+    }
     case Action::GotoPage: {
       auto page = new QComboBox{row};
       page->addItems(m_pages);
@@ -295,10 +385,8 @@ FeedbackList::FeedbackList(const score::DocumentContext& ctx, QWidget* parent)
   m_rows->setSpacing(2);
   lay->addLayout(m_rows);
 
-  auto add = new QToolButton{this};
-  add->setText(tr("Add feedback"));
-  add->setToolButtonStyle(Qt::ToolButtonTextOnly);
-  connect(add, &QToolButton::clicked, this, [this] {
+  auto add = new QPushButton{tr("Add a feedback"), this};
+  connect(add, &QPushButton::clicked, this, [this] {
     m_feedbacks.push_back({.style = {.background = QColor{0x2f, 0x7d, 0x32}}});
     rebuild();
     commit();
@@ -306,8 +394,9 @@ FeedbackList::FeedbackList(const score::DocumentContext& ctx, QWidget* parent)
   lay->addWidget(add, 0, Qt::AlignLeft);
 }
 
-void FeedbackList::setFeedbacks(std::vector<Feedback> f)
+void FeedbackList::setFeedbacks(std::vector<Feedback> f, QString defaultName)
 {
+  m_defaultName = std::move(defaultName);
   if(f == m_feedbacks)
     return;
   m_feedbacks = std::move(f);
@@ -331,20 +420,24 @@ QWidget* FeedbackList::makeRow(int i)
   const Feedback& f = m_feedbacks[i];
   auto row = rowFrame(this);
   auto grid = new QGridLayout{row};
-  grid->setContentsMargins(4, 2, 2, 2);
+  grid->setContentsMargins(4, 4, 4, 4);
   grid->setHorizontalSpacing(4);
-  grid->setVerticalSpacing(2);
+  grid->setVerticalSpacing(4);
 
-  auto addr = addressEditor(m_ctx, f.address, row);
-  connect(
-      addr, &Process::AddressAccessorEditWidget::addressChanged, this, [this, i, addr] {
-    m_feedbacks[i].address = addr->addressString();
-    commit();
-  });
-  grid->addWidget(addr, 0, 0, 1, 2);
+  auto source = new QComboBox{row};
+  source->addItem(tr("While an address of the score"));
+  source->addItem(tr("While an input of the deck"));
+  source->addItem(tr("While a script"));
+  source->setToolTip(
+      tr("An address of the score: any address of the Device Explorer.\n"
+         "An input of the deck: an address created in the deck's tree, at "
+         "deck:/feedbacks/<name>, made to be mapped to along the score.\n"
+         "A script: a JavaScript expression."));
+  source->setCurrentIndex(!f.needsAddress() ? 2 : f.deckInput ? 1 : 0);
+  grid->addWidget(source, 0, 0, 1, 2);
 
   auto del = smallButton(QStringLiteral("✕"), tr("Remove"), row);
-  connect(del, &QToolButton::clicked, this, [this, i] {
+  connect(del, &QPushButton::clicked, this, [this, i] {
     m_feedbacks.erase(m_feedbacks.begin() + i);
     QTimer::singleShot(0, this, [this] {
       rebuild();
@@ -353,29 +446,94 @@ QWidget* FeedbackList::makeRow(int i)
   });
   grid->addWidget(del, 0, 2);
 
-  auto cond = new QComboBox{row};
-  for(auto label : condition_labels)
-    cond->addItem(tr(label));
-  cond->setCurrentIndex(f.condition);
-  grid->addWidget(cond, 1, 0);
+  switch(source->currentIndex())
+  {
+    case 0: {
+      auto addr = addressEditor(m_ctx, f.address, row);
+      connect(
+          addr, &Process::AddressAccessorEditWidget::addressChanged, this,
+          [this, i, addr] {
+        m_feedbacks[i].address = addr->addressString();
+        commit();
+      });
+      grid->addWidget(addr, 1, 0, 1, 3);
+      break;
+    }
+    case 1: {
+      auto lay = new QHBoxLayout;
+      lay->addWidget(new QLabel{QStringLiteral("deck:/feedbacks/"), row});
+      auto name = deckNameEdit(QStringLiteral("deck:/feedbacks/"), f.address, row);
+      lay->addWidget(name, 1);
+      connect(name, &QLineEdit::editingFinished, this, [this, i, name] {
+        const auto path = deckPath(name->text());
+        if(name->text() != path)
+          name->setText(path);
+        if(m_feedbacks[i].address == path)
+          return;
+        m_feedbacks[i].address = path;
+        commit();
+      });
+      grid->addLayout(lay, 1, 0, 1, 3);
+      break;
+    }
+    case 2: {
+      auto expr = new QLineEdit{row};
+      expr->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+      expr->setPlaceholderText(tr("Device.read(\"osc:/level\") > 0.5"));
+      expr->setToolTip(tr("A JavaScript expression, run in the console's engine."));
+      expr->setText(f.script);
+      connect(expr, &QLineEdit::editingFinished, this, [this, i, expr] {
+        if(m_feedbacks[i].script == expr->text())
+          return;
+        m_feedbacks[i].script = expr->text();
+        commit();
+      });
+      grid->addWidget(expr, 1, 0, 1, 3);
+      break;
+    }
+  }
 
-  auto value = new QLineEdit{row};
-  value->setPlaceholderText(tr("value"));
-  value->setText(valueToString(f.value));
-  value->setVisible(f.needsValue());
-  grid->addWidget(value, 1, 1, 1, 2);
+  if(f.needsAddress())
+  {
+    auto cond = new QComboBox{row};
+    for(int c = 0; c < Feedback::Script; c++)
+      cond->addItem(tr(condition_labels[c]));
+    cond->setCurrentIndex(f.condition);
+    grid->addWidget(cond, 2, 0);
 
-  connect(cond, &QComboBox::currentIndexChanged, this, [this, i, value](int c) {
-    m_feedbacks[i].condition = Feedback::Condition(c);
-    value->setVisible(m_feedbacks[i].needsValue());
-    commit();
-  });
-  connect(value, &QLineEdit::editingFinished, this, [this, i, value] {
-    auto v = valueFromString(value->text());
-    if(v == m_feedbacks[i].value)
-      return;
-    m_feedbacks[i].value = v;
-    commit();
+    auto value = new QLineEdit{row};
+    value->setPlaceholderText(tr("value"));
+    value->setText(valueToString(f.value));
+    value->setVisible(f.needsValue());
+    grid->addWidget(value, 2, 1, 1, 2);
+
+    connect(cond, &QComboBox::currentIndexChanged, this, [this, i, value](int c) {
+      m_feedbacks[i].condition = Feedback::Condition(c);
+      value->setVisible(m_feedbacks[i].needsValue());
+      commit();
+    });
+    connect(value, &QLineEdit::editingFinished, this, [this, i, value] {
+      auto v = valueFromString(value->text());
+      if(v == m_feedbacks[i].value)
+        return;
+      m_feedbacks[i].value = v;
+      commit();
+    });
+  }
+
+  connect(source, &QComboBox::currentIndexChanged, this, [this, i](int s) {
+    auto& fb = m_feedbacks[i];
+    fb.deckInput = s == 1;
+    if(s == 2)
+      fb.condition = Feedback::Script;
+    else if(fb.condition == Feedback::Script)
+      fb.condition = Feedback::IsTrue;
+    if(s != 0)
+      fb.address = s == 1 ? m_defaultName : QString{};
+    QTimer::singleShot(0, this, [this] {
+      rebuild();
+      commit();
+    });
   });
 
   auto style = new OverrideEditor{row};
@@ -384,7 +542,8 @@ QWidget* FeedbackList::makeRow(int i)
     m_feedbacks[i].style = style->value();
     commit();
   });
-  grid->addWidget(style, 2, 0, 1, 3);
+  grid->addWidget(new QLabel{tr("the key looks like:"), row}, 3, 0, 1, 3);
+  grid->addWidget(style, 4, 0, 1, 3);
   grid->setColumnStretch(1, 1);
   protectFromWheel(row);
   return row;
@@ -393,26 +552,28 @@ QWidget* FeedbackList::makeRow(int i)
 OverrideEditor::OverrideEditor(QWidget* parent)
     : QWidget{parent}
 {
-  auto lay = new QHBoxLayout{this};
+  auto lay = new QGridLayout{this};
   lay->setContentsMargins(0, 0, 0, 0);
-  lay->setSpacing(4);
+  lay->setHorizontalSpacing(6);
+  lay->setVerticalSpacing(2);
 
-  m_useBackground = new QCheckBox{tr("Back"), this};
+  m_useBackground = new QCheckBox{tr("Background"), this};
   m_background = new ColorButton{this};
-  m_useTextColor = new QCheckBox{tr("Text"), this};
+  m_useTextColor = new QCheckBox{tr("Text colour"), this};
   m_textColor = new ColorButton{this};
   m_textColor->setColor(Qt::white);
-  m_useText = new QCheckBox{this};
-  m_useText->setToolTip(tr("Replace the text"));
+  m_useText = new QCheckBox{tr("Text"), this};
   m_text = new QLineEdit{this};
-  m_text->setPlaceholderText(tr("other text"));
+  m_text->setPlaceholderText(tr("unchanged"));
+  setToolTip(tr("Tick what changes; the rest stays as the key's own look."));
 
-  lay->addWidget(m_useBackground);
-  lay->addWidget(m_background);
-  lay->addWidget(m_useTextColor);
-  lay->addWidget(m_textColor);
-  lay->addWidget(m_useText);
-  lay->addWidget(m_text, 1);
+  lay->addWidget(m_useBackground, 0, 0);
+  lay->addWidget(m_background, 0, 1);
+  lay->addWidget(m_useTextColor, 0, 2);
+  lay->addWidget(m_textColor, 0, 3);
+  lay->addWidget(m_useText, 1, 0);
+  lay->addWidget(m_text, 1, 1, 1, 4);
+  lay->setColumnStretch(4, 1);
 
   auto emitChanged = [this] { changed(); };
   connect(m_useBackground, &QCheckBox::toggled, this, emitChanged);

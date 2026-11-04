@@ -5,8 +5,8 @@
 
 #include <ossia/detail/for_each.hpp>
 
+#include <StreamDeck/ApplicationPlugin.hpp>
 #include <StreamDeck/Commands.hpp>
-#include <StreamDeck/Panel/Panel.hpp>
 #include <StreamDeck/ProtocolFactory.hpp>
 
 #include <score_addon_streamdeck_commands_files.hpp>
@@ -20,8 +20,13 @@ std::vector<score::InterfaceBase*> score_addon_streamdeck::factories(
 {
   return instantiate_factories<
       score::ApplicationContext,
-      FW<Device::ProtocolFactory, StreamDeck::ProtocolFactory>,
-      FW<score::PanelDelegateFactory, StreamDeck::PanelFactory>>(ctx, key);
+      FW<Device::ProtocolFactory, StreamDeck::ProtocolFactory>>(ctx, key);
+}
+
+score::GUIApplicationPlugin*
+score_addon_streamdeck::make_guiApplicationPlugin(const score::GUIApplicationContext& app)
+{
+  return new StreamDeck::ApplicationPlugin{app};
 }
 
 std::pair<const CommandGroupKey, CommandGeneratorMap>

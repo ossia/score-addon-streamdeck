@@ -95,22 +95,50 @@ void DeckView::setTestMode(bool t)
   update();
 }
 
+namespace
+{
+struct Proportions
+{
+  double aspect{1.};
+  double gap{0.2};
+  double keysW{}, keysH{};
+  double stripH{};
+  double knobH{};
+  double width{}, height{};
+};
+
+Proportions proportions(const Model& m)
+{
+  Proportions p;
+  if(m.keyWidth > 0 && m.keyHeight > 0)
+    p.aspect = double(m.keyWidth) / m.keyHeight;
+  const double cols = std::max(1, m.columns);
+  const double rows = std::max(1, m.rows);
+  p.keysW = cols * p.aspect + (cols - 1) * p.gap;
+  p.keysH = rows + (rows - 1) * p.gap;
+  if(m.hasLcd() && m.encoders > 0)
+    p.stripH = std::max(0.3, p.keysW * m.lcdHeight / double(m.lcdWidth));
+  if(m.encoders > 0)
+    p.knobH = 0.75;
+  p.width = p.keysW + 2 * p.gap;
+  p.height = p.keysH + 2 * p.gap + (p.stripH > 0 ? p.stripH + p.gap : 0.)
+             + (p.knobH > 0 ? p.knobH + p.gap : 0.);
+  return p;
+}
+}
+
 QSize DeckView::sizeHint() const
 {
   if(!m_model)
     return {420, 260};
-  const int k = 76;
-  const int gap = k / 5;
-  int w = m_model->columns * k + (m_model->columns - 1) * gap + 2 * gap;
-  int h = m_model->rows * k + (m_model->rows - 1) * gap + 2 * gap;
-  if(m_model->encoders > 0)
-    h += k * 3 / 2;
-  return {w, h};
+  const auto p = proportions(*m_model);
+  const double k = 84;
+  return QSize(p.width * k, p.height * k);
 }
 
 QSize DeckView::minimumSizeHint() const
 {
-  return {160, 100};
+  return {200, 120};
 }
 
 DeckView::Geometry DeckView::geometry() const
@@ -119,40 +147,33 @@ DeckView::Geometry DeckView::geometry() const
   if(!m_model)
     return g;
 
-  const double cols = m_model->columns;
-  const double rows = m_model->rows;
-  const double gapRatio = 0.2;
-  const bool dials = m_model->encoders > 0;
+  const auto p = proportions(*m_model);
+  const double k = std::min(width() / p.width, height() / p.height);
+  const double gap = k * p.gap;
+  const double kw = k * p.aspect;
 
-  const double natW = cols + (cols - 1) * gapRatio + 2 * gapRatio;
-  const double natH = rows + (rows - 1) * gapRatio + 2 * gapRatio + (dials ? 1.5 : 0.);
-  const double k = std::min(width() / natW, height() / natH);
-  const double gap = k * gapRatio;
-
-  const double totalW = natW * k;
-  const double totalH = natH * k;
-  const QPointF origin{(width() - totalW) / 2., (height() - totalH) / 2.};
-  g.body = QRectF{origin, QSizeF{totalW, totalH}};
+  const QPointF origin{(width() - p.width * k) / 2., (height() - p.height * k) / 2.};
+  g.body = QRectF{origin, QSizeF{p.width * k, p.height * k}};
 
   for(int r = 0; r < m_model->rows; r++)
     for(int c = 0; c < m_model->columns; c++)
       g.faces.emplace_back(
-          origin.x() + gap + c * (k + gap), origin.y() + gap + r * (k + gap), k, k);
+          origin.x() + gap + c * (kw + gap), origin.y() + gap + r * (k + gap), kw, k);
 
-  if(dials)
+  if(m_model->encoders > 0)
   {
-    const double keysBottom = origin.y() + gap + rows * k + (rows - 1) * gap;
-    const double stripW = cols * k + (cols - 1) * gap;
+    double y = origin.y() + gap + p.keysH * k + gap;
+    const double stripW = p.keysW * k;
     const double segW = stripW / m_model->encoders;
-    const double stripH = k * 0.55;
-    for(int i = 0; i < m_model->encoders; i++)
+    if(p.stripH > 0)
     {
-      g.faces.emplace_back(origin.x() + gap + i * segW, keysBottom + gap, segW, stripH);
-      const double d = k * 0.6;
-      g.knobs.emplace_back(
-          origin.x() + gap + i * segW + (segW - d) / 2., keysBottom + gap + stripH + gap * 0.6,
-          d, d);
+      for(int i = 0; i < m_model->encoders; i++)
+        g.faces.emplace_back(origin.x() + gap + i * segW, y, segW, p.stripH * k);
+      y += p.stripH * k + gap;
     }
+    const double d = p.knobH * k;
+    for(int i = 0; i < m_model->encoders; i++)
+      g.knobs.emplace_back(origin.x() + gap + i * segW + (segW - d) / 2., y, d, d);
   }
   return g;
 }
@@ -191,7 +212,7 @@ void DeckView::paintEvent(QPaintEvent*)
   {
     const auto r = g.faces[i];
     QPainterPath clip;
-    clip.addRoundedRect(r, r.width() * 0.08, r.width() * 0.08);
+    clip.addRoundedRect(r, std::min(r.width(), r.height()) * 0.08, std::min(r.width(), r.height()) * 0.08);
     p.save();
     p.setClipPath(clip);
     if(i < int(m_faces.size()) && !m_faces[i].isNull())
@@ -209,7 +230,7 @@ void DeckView::paintEvent(QPaintEvent*)
       p.setPen(QPen{accent, 2, Qt::DashLine});
     else
       p.setPen(QPen{QColor{0x40, 0x40, 0x46}, 1});
-    p.drawRoundedRect(r, r.width() * 0.08, r.width() * 0.08);
+    p.drawRoundedRect(r, std::min(r.width(), r.height()) * 0.08, std::min(r.width(), r.height()) * 0.08);
   }
 
   for(int i = 0; i < int(g.knobs.size()); i++)

@@ -2,8 +2,10 @@
 
 #include <Gfx/GfxApplicationPlugin.hpp>
 
+#include <score/application/GUIApplicationContext.hpp>
 #include <score/document/DocumentContext.hpp>
 
+#include <StreamDeck/ApplicationPlugin.hpp>
 #include <StreamDeck/Deck.hpp>
 #include <StreamDeck/Engine.hpp>
 #include <StreamDeck/FrameSink.hpp>
@@ -12,6 +14,7 @@
 #include <StreamDeck/RemoteControl.hpp>
 
 #include <QDebug>
+#include <QMenu>
 #include <QPointer>
 
 #include <wobjectimpl.h>
@@ -26,16 +29,17 @@ ossia::net::hid_device_configuration toConfiguration(const SpecificSettings& s)
   return {
       .path = s.path.toStdString(),
       .serial = s.serial.toStdString(),
-      .vendor_id = elgato_vendor_id,
-      .product_id = uint16_t(modelFor(s).productId)};
+      .vendor_id = uint16_t(modelFor(s).vendorId),
+      .product_id = uint16_t(modelFor(s).productId),
+      .usage_page = modelFor(s).usagePage};
 }
 }
 
 const Model& modelFor(const SpecificSettings& s)
 {
-  if(auto m = findModel(uint16_t(s.productId)))
+  if(auto m = findModel(uint16_t(s.vendorId), uint16_t(s.productId)))
     return *m;
-  return *findModel(0x0080);
+  return *findModel(elgato_vendor_id, 0x0080);
 }
 
 DeckDevice::DeckDevice(
@@ -65,6 +69,15 @@ DeckDevice::~DeckDevice()
 ossia::net::device_base* DeckDevice::getDevice() const
 {
   return m_dev.get();
+}
+
+void DeckDevice::setupContextMenu(QMenu& menu) const
+{
+  auto act = menu.addAction(tr("Edit the layout..."));
+  connect(act, &QAction::triggered, this, [name = m_settings.name] {
+    if(auto plug = score::GUIAppContext().findGuiApplicationPlugin<ApplicationPlugin>())
+      plug->showEditor(name);
+  });
 }
 
 SpecificSettings DeckDevice::specificSettings() const
@@ -99,6 +112,13 @@ bool DeckDevice::reconnect()
   m_engine->onButton
       = [protocol](int pg, int k, bool p) { protocol->notifyButton(pg, k, p); };
   m_engine->onPage = [protocol](int pg) { protocol->notifyPage(pg); };
+  m_engine->deckParameter = [protocol](const QString& path) {
+    return protocol->deckParameter(path.toStdString());
+  };
+  m_engine->writeDeck = [protocol](ossia::net::parameter_base* p, const ossia::value& v) {
+    protocol->write(p, v);
+  };
+  updateDeckAddresses();
 
   setupRemoteControl(set.mode == SpecificSettings::RemoteControl);
 
@@ -119,7 +139,11 @@ void DeckDevice::disconnect()
   deviceChanged(prev.get(), nullptr);
   prev.reset();
   m_sink.reset();
-  m_engine.reset();
+  if(m_engine)
+  {
+    m_engine->shutdown();
+    m_engine.release()->deleteLater();
+  }
 }
 
 void DeckDevice::setupRemoteControl(bool on)
@@ -155,9 +179,20 @@ void DeckDevice::applySettings(const SpecificSettings& s)
   m_engine->setBrightness(s.brightness);
   m_dev->protocol().notifyBrightness(s.brightness);
   setupRemoteControl(s.mode == SpecificSettings::RemoteControl);
-  if(m_dev->protocol().updatePages(int(m_engine->layout().pages.size())))
+  const bool pages = m_dev->protocol().updatePages(int(m_engine->layout().pages.size()));
+  if(updateDeckAddresses() || pages)
     namespaceUpdated();
   settingsApplied();
+}
+
+bool DeckDevice::updateDeckAddresses()
+{
+  if(!m_dev || !m_engine)
+    return false;
+  std::vector<std::pair<std::string, ossia::val_type>> addrs;
+  for(const auto& [path, type] : m_engine->layout().deckAddresses())
+    addrs.emplace_back(path.toStdString(), type);
+  return m_dev->protocol().updateDeckAddresses(addrs);
 }
 
 void DeckDevice::attachHardware()

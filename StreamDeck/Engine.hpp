@@ -26,6 +26,7 @@ namespace StreamDeck
 {
 class Deck;
 class RemoteControl;
+class Scripts;
 
 //! The parameter at "device:/path" in the document, if it exists now.
 ossia::net::parameter_base*
@@ -49,6 +50,8 @@ public:
 
   int page() const noexcept { return m_page; }
   void setPage(int page);
+  void nextPage();
+  void previousPage();
 
   int brightness() const noexcept { return m_brightness; }
   void setBrightness(int b);
@@ -58,12 +61,20 @@ public:
   bool isPressed(int key) const;
   bool isTexture(int face) const;
 
+  //! What a face of any page looks like now, as the deck would show it.
+  Style preview(int page, int face);
+  //! The last error of the scripts of a face of a page, if any.
+  QString scriptError(int page, int face) const;
+
   void press(int key, bool down);
   void pressDial(int dial, bool down);
   void turnDial(int dial, int delta);
 
   //! A field of a key's style, set at run time from the device tree.
   void setOverride(int page, int key, const StyleOverride& o);
+
+  //! Stops running: nothing happens any more until it is deleted.
+  void shutdown();
 
   void setDeck(std::shared_ptr<Deck> deck);
   //! While set, the remote control draws the keys and gets the presses.
@@ -73,6 +84,9 @@ public:
   std::function<void(int key, bool pressed)> onKey;
   std::function<void(int page, int key, bool pressed)> onButton;
   std::function<void(int page)> onPage;
+  //! The addresses of the deck itself that the layout made, by path.
+  std::function<ossia::net::parameter_base*(const QString&)> deckParameter;
+  std::function<void(ossia::net::parameter_base*, const ossia::value&)> writeDeck;
 
   void faceChanged(int face) W_SIGNAL(faceChanged, face);
   void pageChanged(int page) W_SIGNAL(pageChanged, page);
@@ -89,13 +103,13 @@ private:
 
   void refresh();
   void fire(int page, int key, bool down);
-  Style computeFace(int key) const;
-  Style computeDial(int dial) const;
-  void run(const std::vector<Action>& actions);
-  void runNow(const Action& a);
+  Style computeFace(int page, int key);
+  Style computeDial(int page, int dial);
+  void run(int page, int face, std::vector<Action> actions);
+  void runNow(int page, int face, const Action& a);
   ossia::net::parameter_base* resolve(const QString& address) const;
-  QString expand(const QString& text) const;
-  bool evaluate(const Feedback& f) const;
+  bool evaluate(int page, int face, const Feedback& f);
+  void setError(int page, int face, int slot, const QString& e);
   void applyTextureMask();
 
   const score::DocumentContext& m_ctx;
@@ -108,6 +122,11 @@ private:
   std::vector<KeyState> m_keys;
   std::map<std::pair<int, int>, bool> m_toggles;
   std::map<std::pair<int, int>, StyleOverride> m_overrides;
+  std::map<std::tuple<int, int, int>, QString> m_errors;
+  std::unique_ptr<Scripts> m_scripts;
+  bool m_refreshing{};
+  bool m_shutdown{};
+  bool m_refreshAgain{};
 
   std::shared_ptr<Deck> m_deck;
   QPointer<RemoteControl> m_remote;

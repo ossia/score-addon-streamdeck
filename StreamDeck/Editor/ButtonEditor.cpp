@@ -4,9 +4,9 @@
 
 #include <Process/Dataflow/AddressAccessorEditWidget.hpp>
 
-#include <StreamDeck/Panel/ActionList.hpp>
-#include <StreamDeck/Panel/ColorButton.hpp>
-#include <StreamDeck/Panel/WheelGuard.hpp>
+#include <StreamDeck/Editor/ActionList.hpp>
+#include <StreamDeck/Editor/ColorButton.hpp>
+#include <StreamDeck/Editor/WheelGuard.hpp>
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -19,6 +19,7 @@
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QTabWidget>
+#include <QPushButton>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -55,8 +56,28 @@ TextField* textField(QWidget* parent)
   auto t = new TextField{parent};
   t->setTabChangesFocus(true);
   t->setFixedHeight(t->fontMetrics().lineSpacing() * 3 + 10);
-  t->setPlaceholderText(QObject::tr("Text. $(device:/address) shows a value."));
+  t->setPlaceholderText(QObject::tr("Text"));
+  t->setToolTip(QObject::tr(
+      "The text of the key. Parts written ${like this} are JavaScript, run in the "
+      "same engine as the console:\n\n"
+      "  ${Device.read(\"osc:/level\")}\n"
+      "  ${Number(Device.read(\"osc:/level\")).toFixed(2)}\n"
+      "  ${deck.pageName()}  ${deck.page()} / ${deck.pageCount()}\n"
+      "  ${new Date().toLocaleTimeString()}"));
   return t;
+}
+
+QLabel* errorLabel(QWidget* parent)
+{
+  auto l = new QLabel{parent};
+  l->setWordWrap(true);
+  auto pal = l->palette();
+  pal.setColor(QPalette::WindowText, QColor{0xff, 0x6b, 0x5b});
+  l->setPalette(pal);
+  l->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  l->setContentsMargins(6, 0, 6, 0);
+  l->hide();
+  return l;
 }
 
 void setText(TextField* t, const QString& s)
@@ -105,6 +126,8 @@ QWidget* ButtonEditor::makeButtonForm()
   m_buttonTitle->setFont(tf);
   m_buttonTitle->setContentsMargins(6, 4, 6, 0);
   rootLay->addWidget(m_buttonTitle);
+  m_buttonError = errorLabel(root);
+  rootLay->addWidget(m_buttonError);
   auto tabs = new QTabWidget{root};
   tabs->setDocumentMode(true);
   rootLay->addWidget(tabs, 1);
@@ -128,7 +151,7 @@ QWidget* ButtonEditor::makeButtonForm()
   colors->addWidget(new QLabel{tr("Background"), w});
   colors->addWidget(m_background);
   colors->addSpacing(8);
-  colors->addWidget(new QLabel{tr("Text"), w});
+  colors->addWidget(new QLabel{tr("Text colour"), w});
   colors->addWidget(m_textColor);
   colors->addStretch(1);
   form->addRow(colors);
@@ -147,10 +170,8 @@ QWidget* ButtonEditor::makeButtonForm()
 
   m_image = new QLineEdit{w};
   m_image->setPlaceholderText(tr("Image file"));
-  auto browse = new QToolButton{w};
-  browse->setText(QStringLiteral("…"));
-  auto clearImage = new QToolButton{w};
-  clearImage->setText(QStringLiteral("✕"));
+  auto browse = new QPushButton{tr("Choose…"), w};
+  auto clearImage = new QPushButton{tr("Remove"), w};
   auto imageRow = new QHBoxLayout;
   imageRow->addWidget(m_image, 1);
   imageRow->addWidget(browse);
@@ -196,8 +217,8 @@ QWidget* ButtonEditor::makeButtonForm()
 
   auto [fw, flay] = page(tr("Feedbacks"));
   auto fbHelp = new QLabel{
-      tr("Change the look of the key while a value of the document matches. The last "
-         "matching feedback wins."),
+      tr("Change the look of the key while an address of the score, an input of the "
+         "deck or a script matches. The last matching feedback wins."),
       fw};
   fbHelp->setWordWrap(true);
   fbHelp->setEnabled(false);
@@ -213,7 +234,7 @@ QWidget* ButtonEditor::makeButtonForm()
   connect(m_textSize, &QSpinBox::valueChanged, this, changed);
   connect(m_align, &QComboBox::currentIndexChanged, this, changed);
   connect(m_image, &QLineEdit::editingFinished, this, changed);
-  connect(browse, &QToolButton::clicked, this, [this] {
+  connect(browse, &QPushButton::clicked, this, [this] {
     auto f = QFileDialog::getOpenFileName(
         this, tr("Key image"), m_image->text(),
         tr("Images (*.png *.jpg *.jpeg *.bmp *.gif *.svg *.webp)"));
@@ -223,7 +244,7 @@ QWidget* ButtonEditor::makeButtonForm()
       buttonChanged();
     }
   });
-  connect(clearImage, &QToolButton::clicked, this, [this] {
+  connect(clearImage, &QPushButton::clicked, this, [this] {
     m_image->clear();
     buttonChanged();
   });
@@ -251,6 +272,8 @@ QWidget* ButtonEditor::makeDialForm()
   tf.setBold(true);
   m_dialTitle->setFont(tf);
   lay->addWidget(m_dialTitle);
+  m_dialError = errorLabel(w);
+  lay->addWidget(m_dialError);
 
   lay->addWidget(section(tr("Turning"), w));
   m_dialAddress = new Process::AddressAccessorEditWidget{m_ctx, w};
@@ -264,7 +287,7 @@ QWidget* ButtonEditor::makeDialForm()
 
   lay->addWidget(section(tr("Strip"), w));
   m_dialText = textField(w);
-  m_dialText->setPlaceholderText(tr("Empty: the address and its value"));
+  m_dialText->setPlaceholderText(tr("Empty: the name of the address and its value"));
   lay->addWidget(m_dialText);
   auto colors = new QHBoxLayout;
   m_dialBackground = new ColorButton{w};
@@ -272,7 +295,7 @@ QWidget* ButtonEditor::makeDialForm()
   colors->addWidget(new QLabel{tr("Background"), w});
   colors->addWidget(m_dialBackground);
   colors->addSpacing(8);
-  colors->addWidget(new QLabel{tr("Text"), w});
+  colors->addWidget(new QLabel{tr("Text colour"), w});
   colors->addWidget(m_dialTextColor);
   colors->addStretch(1);
   lay->addLayout(colors);
@@ -300,9 +323,20 @@ QWidget* ButtonEditor::makeDialForm()
 void ButtonEditor::updateModeLabels()
 {
   const bool toggle = m_mode->currentIndex() == Button::Toggle;
-  m_activeLabel->setText(toggle ? tr("Look while on") : tr("Look while pressed"));
+  m_activeLabel->setText(
+      toggle ? tr("Look while on") : tr("Look while pressed, or while its trigger is on"));
   m_pressLabel->setText(toggle ? tr("When switched on") : tr("On press"));
   m_releaseLabel->setText(toggle ? tr("When switched off") : tr("On release"));
+}
+
+void ButtonEditor::setScriptError(const QString& error)
+{
+  for(auto l : {m_buttonError, m_dialError})
+  {
+    if(l->text() != error)
+      l->setText(error);
+    l->setVisible(!error.isEmpty());
+  }
 }
 
 void ButtonEditor::showMessage(const QString& text)
@@ -311,7 +345,8 @@ void ButtonEditor::showMessage(const QString& text)
   m_stack->setCurrentIndex(0);
 }
 
-void ButtonEditor::showButton(const QString& title, const Button& b, QStringList pages)
+void ButtonEditor::showButton(
+    const QString& title, const Button& b, QStringList pages, QString defaultName)
 {
   m_buttonTitle->setText(title);
   setText(m_text, b.style.text);
@@ -330,15 +365,16 @@ void ButtonEditor::showButton(const QString& title, const Button& b, QStringList
   }
   {
     QSignalBlocker b1{m_press}, b2{m_release}, b3{m_feedbacks};
-    m_press->setActions(b.press, pages);
-    m_release->setActions(b.release, pages);
-    m_feedbacks->setFeedbacks(b.feedbacks);
+    m_press->setActions(b.press, pages, defaultName);
+    m_release->setActions(b.release, pages, defaultName + QStringLiteral("/release"));
+    m_feedbacks->setFeedbacks(b.feedbacks, defaultName);
   }
   updateModeLabels();
   m_stack->setCurrentIndex(1);
 }
 
-void ButtonEditor::showDial(const QString& title, const Dial& d, QStringList pages)
+void ButtonEditor::showDial(
+    const QString& title, const Dial& d, QStringList pages, QString defaultName)
 {
   m_dialTitle->setText(title);
   {
@@ -355,7 +391,7 @@ void ButtonEditor::showDial(const QString& title, const Dial& d, QStringList pag
     m_dialStep->setValue(d.step);
     m_dialBackground->setColor(d.style.background);
     m_dialTextColor->setColor(d.style.textColor);
-    m_dialPress->setActions(d.press, pages);
+    m_dialPress->setActions(d.press, pages, defaultName);
   }
   setText(m_dialText, d.style.text);
   m_stack->setCurrentIndex(2);

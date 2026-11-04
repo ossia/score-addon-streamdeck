@@ -1,5 +1,6 @@
 #include "Protocol.hpp"
 
+#include <ossia/detail/algorithms.hpp>
 #include <ossia/detail/fmt.hpp>
 #include <ossia/network/base/node_functions.hpp>
 #include <ossia/network/dataspace/dataspace.hpp>
@@ -144,6 +145,65 @@ bool deck_protocol::updatePages(int count)
   return true;
 }
 
+bool deck_protocol::updateDeckAddresses(
+    const std::vector<std::pair<std::string, ossia::val_type>>& addrs)
+{
+  if(!m_device)
+    return false;
+  auto& root = m_device->get_root_node();
+  bool changed = false;
+  std::lock_guard lock{m_mutex};
+
+  for(auto it = m_deckAddresses.begin(); it != m_deckAddresses.end();)
+  {
+    auto wanted = std::find_if(addrs.begin(), addrs.end(), [&](const auto& a) {
+      return a.first == it->first && a.second == it->second->get_value_type();
+    });
+    if(wanted != addrs.end())
+    {
+      ++it;
+      continue;
+    }
+    m_bindings.erase(it->second);
+    auto& node = it->second->get_node();
+    auto parent = node.get_parent();
+    if(parent)
+    {
+      parent->remove_child(node);
+      while(parent && parent != &root && parent->children().empty())
+      {
+        auto up = parent->get_parent();
+        if(up)
+          up->remove_child(*parent);
+        parent = up;
+      }
+    }
+    it = m_deckAddresses.erase(it);
+    changed = true;
+  }
+
+  for(const auto& [path, type] : addrs)
+  {
+    if(ossia::any_of(m_deckAddresses, [&](const auto& d) { return d.first == path; }))
+      continue;
+    auto p = make(root, path, type, ossia::access_mode::BI);
+    if(type == ossia::val_type::BOOL)
+      p->set_value(false);
+    m_bindings[p] = {Field::DeckAddress};
+    m_deckAddresses.emplace_back(path, p);
+    changed = true;
+  }
+  return changed;
+}
+
+ossia::net::parameter_base* deck_protocol::deckParameter(const std::string& path) const
+{
+  for(const auto& [p, param] : m_deckAddresses)
+    if(p == path)
+      return param;
+  return nullptr;
+}
+
 void deck_protocol::setInfo(const std::string& serial, const std::string& firmware)
 {
   notify(m_serial, serial);
@@ -159,6 +219,8 @@ bool deck_protocol::push(const ossia::net::parameter_base& p, const ossia::value
     if(it == m_bindings.end())
       return false;
     b = it->second;
+    if(b.field == Field::DeckAddress)
+      return true;
     if(b.field == Field::EncoderPosition)
     {
       m_positions[b.index] = ossia::convert<int>(v);
@@ -198,6 +260,7 @@ bool deck_protocol::push(const ossia::net::parameter_base& p, const ossia::value
             {.image = QString::fromStdString(ossia::convert<std::string>(v))});
         break;
       case Field::EncoderPosition:
+      case Field::DeckAddress:
         break;
     }
   }, Qt::QueuedConnection);

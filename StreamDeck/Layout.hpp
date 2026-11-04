@@ -22,6 +22,7 @@ struct Style
 {
   QColor background{Qt::black};
   QColor textColor{Qt::white};
+  //! A JavaScript template literal when it contains ${...}.
   QString text;
   QString image;
   //! Pixels; 0 fits the text to the key.
@@ -57,6 +58,11 @@ struct Action
     GotoPage,
     NextPage,
     PreviousPage,
+    //! Runs `script` in score's JavaScript console engine.
+    Script,
+    //! Writes to deck:/actions/`address`, an address of the deck itself made
+    //! to be mapped: an impulse, or a boolean that each press flips.
+    Trigger,
   };
 
   Type type{Send};
@@ -64,10 +70,13 @@ struct Action
   ossia::value value;
   double step{1.};
   int page{};
+  QString script;
+  bool toggle{};
   //! Milliseconds after the key event.
   int delay{};
 
   bool needsAddress() const noexcept { return type == Send || type == Toggle || type == Step; }
+  QString deckAddress() const { return QStringLiteral("actions/") + address; }
   bool operator==(const Action&) const = default;
 };
 
@@ -80,15 +89,24 @@ struct Feedback
     Equal,
     NotEqual,
     Greater,
-    Less
+    Less,
+    //! `script` is a JavaScript expression.
+    Script
   };
 
   QString address;
   Condition condition{IsTrue};
   ossia::value value;
+  QString script;
+  //! `address` is a name under deck:/feedbacks/: an input of the deck itself,
+  //! made to be mapped to.
+  bool deckInput{};
+
+  QString deckAddress() const { return QStringLiteral("feedbacks/") + address; }
   StyleOverride style;
 
-  bool needsValue() const noexcept { return condition >= Equal; }
+  bool needsAddress() const noexcept { return condition != Script; }
+  bool needsValue() const noexcept { return condition >= Equal && condition != Script; }
   bool operator==(const Feedback&) const = default;
 };
 
@@ -145,11 +163,17 @@ struct Layout
 
   //! At least one page, and every page sized for the model.
   void normalize(int keys, int dials);
+
+  //! The addresses the layout creates in the deck's tree, relative to it.
+  std::vector<std::pair<QString, ossia::val_type>> deckAddresses() const;
   bool operator==(const Layout&) const = default;
 };
 
 QJsonObject toJson(const Layout& l);
 Layout layoutFromJson(const QJsonObject& obj);
+
+//! A path under the deck's root: valid names, separated by slashes.
+QString deckPath(const QString& s);
 
 QString valueToString(const ossia::value& v);
 ossia::value valueFromString(const QString& s);

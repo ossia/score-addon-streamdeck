@@ -9,6 +9,7 @@
 #include <QRect>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -18,15 +19,6 @@
 
 namespace StreamDeck
 {
-//! Keys, then one face per segment of the touch strip.
-int faceCount(const Model& m) noexcept;
-QSize faceSize(const Model& m, int face) noexcept;
-
-//! The size of the texture the keys of a model are cut from, and where each
-//! face sits in it.
-QSize canvasSize(const Model& m) noexcept;
-QRect tileRect(const Model& m, int face) noexcept;
-
 /**
  * An open Stream Deck.
  *
@@ -81,6 +73,7 @@ private:
   void onInput(std::span<const uint8_t> report);
   void workerLoop();
   void upload(int index, const QImage& img);
+  void send(const Report& r);
   std::string readString(StringReport r);
 
   const Model& m_model;

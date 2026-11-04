@@ -24,7 +24,7 @@ class ActionList final : public QWidget
 public:
   ActionList(const score::DocumentContext& ctx, QWidget* parent = nullptr);
 
-  void setActions(std::vector<Action> actions, QStringList pages);
+  void setActions(std::vector<Action> actions, QStringList pages, QString defaultName);
   const std::vector<Action>& actions() const noexcept { return m_actions; }
 
   void changed() W_SIGNAL(changed);
@@ -37,6 +37,7 @@ private:
   const score::DocumentContext& m_ctx;
   std::vector<Action> m_actions;
   QStringList m_pages;
+  QString m_defaultName;
   QVBoxLayout* m_rows{};
 };
 
@@ -47,7 +48,7 @@ class FeedbackList final : public QWidget
 public:
   FeedbackList(const score::DocumentContext& ctx, QWidget* parent = nullptr);
 
-  void setFeedbacks(std::vector<Feedback> f);
+  void setFeedbacks(std::vector<Feedback> f, QString defaultName);
   const std::vector<Feedback>& feedbacks() const noexcept { return m_feedbacks; }
 
   void changed() W_SIGNAL(changed);
@@ -59,6 +60,7 @@ private:
 
   const score::DocumentContext& m_ctx;
   std::vector<Feedback> m_feedbacks;
+  QString m_defaultName;
   QVBoxLayout* m_rows{};
 };
 

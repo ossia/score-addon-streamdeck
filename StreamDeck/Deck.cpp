@@ -1,94 +1,8 @@
 #include "Deck.hpp"
 
-#include <QBuffer>
-#include <QTransform>
 
 namespace StreamDeck
 {
-namespace
-{
-QImage orient(const QImage& img, const Model& m)
-{
-  QImage res = img;
-  if(m.rotation % 360 != 0)
-    res = res.transformed(QTransform().rotate(m.rotation));
-  if(m.flipX || m.flipY)
-  {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
-    res = res.flipped(
-        (m.flipX ? Qt::Horizontal : Qt::Orientations{})
-        | (m.flipY ? Qt::Vertical : Qt::Orientations{}));
-#else
-    res = res.mirrored(m.flipX, m.flipY);
-#endif
-  }
-  return res;
-}
-
-QByteArray encode(const QImage& img, ImageFormat format)
-{
-  QByteArray out;
-  QBuffer buf{&out};
-  buf.open(QIODevice::WriteOnly);
-  const auto rgb = img.convertToFormat(QImage::Format_RGB888);
-  if(format == ImageFormat::BMP)
-    rgb.save(&buf, "BMP");
-  else
-    rgb.save(&buf, "JPEG", 90);
-  return out;
-}
-
-int gapFor(const Model& m)
-{
-  return m.keyWidth / 4;
-}
-}
-
-int faceCount(const Model& m) noexcept
-{
-  if(!m.hasDisplay())
-    return 0;
-  return m.keyCount() + (m.hasLcd() ? m.encoders : 0);
-}
-
-QSize faceSize(const Model& m, int face) noexcept
-{
-  if(face < m.keyCount())
-    return {m.keyWidth, m.keyHeight};
-  return {m.lcdWidth / std::max(1, m.encoders), m.lcdHeight};
-}
-
-QSize canvasSize(const Model& m) noexcept
-{
-  if(!m.hasDisplay())
-    return {};
-  const int gap = gapFor(m);
-  const int w = m.columns * m.keyWidth + (m.columns - 1) * gap;
-  int h = m.rows * m.keyHeight + (m.rows - 1) * gap;
-  if(m.hasLcd())
-    h += gap + w * m.lcdHeight / m.lcdWidth;
-  return {w, h};
-}
-
-QRect tileRect(const Model& m, int face) noexcept
-{
-  const int gap = gapFor(m);
-  if(face < m.keyCount())
-  {
-    const int col = face % m.columns;
-    const int row = face / m.columns;
-    return {col * (m.keyWidth + gap), row * (m.keyHeight + gap), m.keyWidth, m.keyHeight};
-  }
-
-  const auto canvas = canvasSize(m);
-  const int keysHeight = m.rows * m.keyHeight + (m.rows - 1) * gap;
-  const int segment = face - m.keyCount();
-  const int segmentWidth = canvas.width() / std::max(1, m.encoders);
-  return {
-      segment * segmentWidth, keysHeight + gap, segmentWidth,
-      canvas.height() - keysHeight - gap};
-}
-
 Deck::Deck(const Model& model, const ossia::net::hid_device_configuration& conf)
     : m_model{model}
 {
@@ -115,7 +29,8 @@ void Deck::stop()
     m_worker.join();
 
   if(m_hid.is_open() && !m_unplugged)
-    m_hid.send_feature_report(resetReport(m_model));
+    for(const auto& r : closeReports(m_model))
+      send(r);
   m_hid.close();
 }
 
@@ -134,8 +49,18 @@ void Deck::start(Callbacks cb, int brightness)
       inputReportSize(m_model));
 }
 
+void Deck::send(const Report& r)
+{
+  if(r.feature)
+    m_hid.send_feature_report(r.data);
+  else
+    m_hid.write(r.data);
+}
+
 std::string Deck::readString(StringReport r)
 {
+  if(r.length <= 0)
+    return {};
   std::vector<uint8_t> buf(r.length, 0);
   buf[0] = r.id;
   const int n = m_hid.get_feature_report(buf);
@@ -225,6 +150,27 @@ void Deck::onInput(std::span<const uint8_t> report)
       }
       break;
 
+    case InputEvent::Key:
+      if(ev.values.size() == 2 && ev.values[0] >= 0
+         && ev.values[0] < int(m_keyState.size()) && m_keyState[ev.values[0]] != ev.values[1])
+      {
+        const int k = ev.values[0];
+        auto notify = [&](bool p) {
+          m_keyState[k] = p;
+          if(k < m_model.keyCount())
+          {
+            if(m_callbacks.key)
+              m_callbacks.key(k, p);
+          }
+          else if(m_callbacks.touchKey)
+            m_callbacks.touchKey(k - m_model.keyCount(), p);
+        };
+        notify(ev.values[1]);
+        if(ev.tap && ev.values[1])
+          notify(false);
+      }
+      break;
+
     case InputEvent::EncoderPress:
       for(std::size_t i = 0; i < ev.values.size() && i < m_encoderState.size(); i++)
       {
@@ -233,6 +179,12 @@ void Deck::onInput(std::span<const uint8_t> report)
         m_encoderState[i] = ev.values[i];
         if(m_callbacks.encoderPress)
           m_callbacks.encoderPress(i, ev.values[i]);
+        if(ev.tap && ev.values[i])
+        {
+          m_encoderState[i] = 0;
+          if(m_callbacks.encoderPress)
+            m_callbacks.encoderPress(i, false);
+        }
       }
       break;
 
@@ -256,28 +208,25 @@ void Deck::onInput(std::span<const uint8_t> report)
 
 void Deck::upload(int index, const QImage& img)
 {
-  if(index < m_model.keyCount())
-  {
-    const auto bytes = encode(orient(img, m_model), m_model.format);
-    for(const auto& r : keyImageReports(
-            m_model, index,
-            {reinterpret_cast<const uint8_t*>(bytes.constData()), std::size_t(bytes.size())}))
-      m_hid.write(r);
-  }
-  else
-  {
-    const auto bytes = encode(img, ImageFormat::JPEG);
-    const int segment = index - m_model.keyCount();
-    const auto sz = faceSize(m_model, index);
-    for(const auto& r : lcdImageReports(
-            m_model, segment * sz.width(), 0, sz.width(), sz.height(),
-            {reinterpret_cast<const uint8_t*>(bytes.constData()), std::size_t(bytes.size())}))
-      m_hid.write(r);
-  }
+  const auto bytes = encode(
+      orient(img, m_model), m_model.format,
+      m_model.protocol == Protocol::Mirabox ? 10240 : 0);
+  const std::span<const uint8_t> data{
+      reinterpret_cast<const uint8_t*>(bytes.constData()), std::size_t(bytes.size())};
+  const auto reports = index < m_model.keyCount()
+                           ? keyImageReports(m_model, index, data)
+                           : stripImageReports(m_model, index - m_model.keyCount(), data);
+  for(const auto& r : reports)
+    send(r);
 }
 
 void Deck::workerLoop()
 {
+  for(const auto& r : openReports(m_model))
+    send(r);
+
+  const auto keepAlive = std::chrono::milliseconds{keepAliveInterval(m_model)};
+  auto nextKeepAlive = std::chrono::steady_clock::now() + keepAlive;
   for(;;)
   {
     std::vector<std::pair<int, Style>> faces;
@@ -286,12 +235,32 @@ void Deck::workerLoop()
     std::optional<int> brightness;
     {
       std::unique_lock lock{m_mutex};
-      m_cv.wait(lock, [this] {
+      auto ready = [this] {
         return m_stop || m_pendingBrightness || !m_pendingFrame.isNull()
                || std::any_of(m_faces.begin(), m_faces.end(), [](const auto& f) {
           return f.dirty && !f.texture;
         });
-      });
+      };
+      if(keepAlive.count() > 0)
+      {
+        const bool woken = m_cv.wait_until(lock, nextKeepAlive, ready);
+        if(std::chrono::steady_clock::now() >= nextKeepAlive)
+        {
+          lock.unlock();
+          for(const auto& r : keepAliveReports(m_model))
+            send(r);
+          nextKeepAlive = std::chrono::steady_clock::now() + keepAlive;
+          if(!woken)
+            continue;
+          lock.lock();
+        }
+        else if(!woken)
+          continue;
+      }
+      else
+      {
+        m_cv.wait(lock, ready);
+      }
       if(m_stop)
         return;
 
@@ -312,8 +281,10 @@ void Deck::workerLoop()
     }
 
     if(brightness)
-      m_hid.send_feature_report(brightnessReport(m_model, *brightness));
+      for(const auto& r : brightnessReports(m_model, *brightness))
+        send(r);
 
+    bool uploaded = !faces.empty();
     for(auto& [index, face] : faces)
       upload(index, renderStyle(face, faceSize(m_model, index), m_images));
 
@@ -331,8 +302,13 @@ void Deck::workerLoop()
           continue;
         upload(i, tile);
         m_lastTiles[i] = std::move(tile);
+        uploaded = true;
       }
     }
+
+    if(uploaded)
+      for(const auto& r : flushReports(m_model))
+        send(r);
   }
 }
 }

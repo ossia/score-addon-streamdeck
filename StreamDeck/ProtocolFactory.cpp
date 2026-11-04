@@ -27,6 +27,7 @@ Device::DeviceSettings deckSettings(const ossia::net::hid_device_info& info)
   SpecificSettings specif;
   specif.path = QString::fromStdString(info.path);
   specif.serial = QString::fromStdString(info.serial);
+  specif.vendorId = info.vendor_id;
   specif.productId = info.product_id;
   s.deviceSpecificSettings = QVariant::fromValue(specif);
   return s;
@@ -34,7 +35,7 @@ Device::DeviceSettings deckSettings(const ossia::net::hid_device_info& info)
 
 QString deckLabel(const ossia::net::hid_device_info& info)
 {
-  const auto* m = findModel(info.product_id);
+  const auto* m = findModel(info.vendor_id, info.product_id);
   QString name = m ? QString::fromUtf8(m->name.data(), m->name.size())
                    : QString::fromStdString(info.product);
   if(!info.serial.empty())
@@ -45,9 +46,11 @@ QString deckLabel(const ossia::net::hid_device_info& info)
 std::vector<ossia::net::hid_device_info> connectedDecks()
 {
   std::vector<ossia::net::hid_device_info> res;
-  for(auto& d : ossia::net::hid_enumerate(elgato_vendor_id, 0))
-    if(findModel(d.product_id))
-      res.push_back(std::move(d));
+  for(auto& d : ossia::net::hid_enumerate(0, 0))
+    if(auto m = findModel(d.vendor_id, d.product_id))
+      if((m->usagePage == 0 || d.usage_page == 0 || d.usage_page == m->usagePage)
+         && ossia::none_of(res, [&](const auto& o) { return o.path == d.path; }))
+        res.push_back(std::move(d));
   return res;
 }
 
@@ -146,6 +149,7 @@ const Device::DeviceSettings& ProtocolFactory::defaultSettings() const noexcept
     {
       specif.path = QString::fromStdString(decks.front().path);
       specif.serial = QString::fromStdString(decks.front().serial);
+      specif.vendorId = decks.front().vendor_id;
       specif.productId = decks.front().product_id;
     }
     s.deviceSpecificSettings = QVariant::fromValue(specif);
