@@ -4,8 +4,8 @@
   "raw_name": "score-addon-streamdeck",
   "version": "1.0",
   "kind": "addon",
-  "short": "Elgato Stream Deck support",
-  "long": "Keys, dials and touch strip as device parameters, key faces driven by parameters or by a texture, and a remote control mode for score's transport and the selected process's controls.",
+  "short": "Stream Deck and Stream Dock support",
+  "long": "Elgato Stream Deck and Mirabox / Ajazz Stream Dock keypads: an editor for pages of keys with actions, feedbacks and scripts, triggers and inputs to map along the score, key faces from a texture, and a remote control mode for the transport and the selected process.",
   "small": "https://raw.githubusercontent.com/OSSIA/score-addon-tutorial/master/Deployment/icon.png",
   "key": "a11ec039-8e7a-48ac-be34-8cdc2d240ce8"
 }
