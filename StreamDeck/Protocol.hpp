@@ -6,64 +6,84 @@
 #include <ossia/detail/hash_map.hpp>
 #include <ossia/network/base/device.hpp>
 
+#include <QPointer>
+
 #include <memory>
 #include <mutex>
 
 namespace StreamDeck
 {
-class OutputNode;
+class Engine;
 
-//! The device tree of a Stream Deck: the root takes a texture, the children
-//! are the keys, dials, touch strip and settings.
+/**
+ * The device tree of a Stream Deck. The root takes a texture; the children
+ * are the current page, the keys as they are pressed, a few run-time fields
+ * of each button of each page, and the dials, touch strip and settings.
+ *
+ * Writes are handed to the engine, on the main thread; the engine reports
+ * presses and page changes back through the notify functions.
+ */
 class deck_protocol final : public Gfx::gfx_protocol_base
 {
 public:
-  deck_protocol(Gfx::GfxExecutionAction& ctx, std::shared_ptr<Deck> deck, int brightness);
+  deck_protocol(Gfx::GfxExecutionAction& ctx, Engine& engine);
   ~deck_protocol() override;
 
   void set_device(ossia::net::device_base& dev) override;
   bool push(const ossia::net::parameter_base&, const ossia::value& v) override;
 
-  Deck& deck() const noexcept { return *m_deck; }
+  //! Main thread. Rebuilds /pages when the number of pages changed.
+  bool updatePages(int count);
+  void setInfo(const std::string& serial, const std::string& firmware);
 
-  void onKey(int key, bool pressed);
-  void onTouchKey(int key, bool pressed);
-  void onEncoderPress(int encoder, bool pressed);
-  void onEncoderTurn(int encoder, int delta);
-  void onTouch(InputEvent::Kind kind, int x, int y, int x2, int y2);
+  void notifyKey(int key, bool pressed);
+  void notifyButton(int page, int key, bool pressed);
+  void notifyPage(int page);
+  void notifyBrightness(int b);
+  void notifyTouchKey(int key, bool pressed);
+  void notifyEncoderPress(int encoder, bool pressed);
+  void notifyEncoderTurn(int encoder, int delta);
+  void notifyTouch(InputEvent::Kind kind, int x, int y, int x2, int y2);
 
 private:
   enum class Field : uint8_t
   {
+    Page,
+    Brightness,
+    KeyPressed,
     Color,
     Text,
     TextColor,
-    TextSize,
     Image,
-    Brightness,
-    Clear
+    EncoderPosition,
   };
   struct Binding
   {
-    int face{};
     Field field{};
+    int page{};
+    int index{};
   };
 
-  void createFace(ossia::net::node_base& node, int face);
   void notify(ossia::net::parameter_base* p, const ossia::value& v);
 
-  std::shared_ptr<Deck> m_deck;
+  QPointer<Engine> m_engine;
+  const Model& m_model;
   ossia::net::device_base* m_device{};
-  int m_brightness{};
 
+  std::mutex m_mutex;
   ossia::hash_map<const ossia::net::parameter_base*, Binding> m_bindings;
+
+  ossia::net::parameter_base* m_page{};
+  ossia::net::parameter_base* m_brightness{};
+  ossia::net::parameter_base* m_serial{};
+  ossia::net::parameter_base* m_firmware{};
   std::vector<ossia::net::parameter_base*> m_keys;
+  std::vector<std::vector<ossia::net::parameter_base*>> m_buttons;
   std::vector<ossia::net::parameter_base*> m_touchKeys;
   std::vector<ossia::net::parameter_base*> m_encoderPressed;
   std::vector<ossia::net::parameter_base*> m_encoderTurn;
   std::vector<ossia::net::parameter_base*> m_encoderPosition;
   std::vector<int> m_positions;
-  std::mutex m_positionMutex;
   ossia::net::parameter_base* m_tap{};
   ossia::net::parameter_base* m_longPress{};
   ossia::net::parameter_base* m_swipe{};
@@ -102,6 +122,10 @@ public:
       std::unique_ptr<deck_protocol> proto, score::gfx::Node* node, std::string name);
   ~deck_device() override;
 
+  deck_protocol& protocol() const noexcept
+  {
+    return static_cast<deck_protocol&>(*m_protocol);
+  }
   const deck_root_node& get_root_node() const override { return m_root; }
   deck_root_node& get_root_node() override { return m_root; }
 

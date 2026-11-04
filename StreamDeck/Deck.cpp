@@ -1,12 +1,7 @@
 #include "Deck.hpp"
 
 #include <QBuffer>
-#include <QFont>
-#include <QFontMetrics>
-#include <QPainter>
 #include <QTransform>
-
-#include <stdexcept>
 
 namespace StreamDeck
 {
@@ -49,14 +44,59 @@ int gapFor(const Model& m)
 }
 }
 
+int faceCount(const Model& m) noexcept
+{
+  if(!m.hasDisplay())
+    return 0;
+  return m.keyCount() + (m.hasLcd() ? m.encoders : 0);
+}
+
+QSize faceSize(const Model& m, int face) noexcept
+{
+  if(face < m.keyCount())
+    return {m.keyWidth, m.keyHeight};
+  return {m.lcdWidth / std::max(1, m.encoders), m.lcdHeight};
+}
+
+QSize canvasSize(const Model& m) noexcept
+{
+  if(!m.hasDisplay())
+    return {};
+  const int gap = gapFor(m);
+  const int w = m.columns * m.keyWidth + (m.columns - 1) * gap;
+  int h = m.rows * m.keyHeight + (m.rows - 1) * gap;
+  if(m.hasLcd())
+    h += gap + w * m.lcdHeight / m.lcdWidth;
+  return {w, h};
+}
+
+QRect tileRect(const Model& m, int face) noexcept
+{
+  const int gap = gapFor(m);
+  if(face < m.keyCount())
+  {
+    const int col = face % m.columns;
+    const int row = face / m.columns;
+    return {col * (m.keyWidth + gap), row * (m.keyHeight + gap), m.keyWidth, m.keyHeight};
+  }
+
+  const auto canvas = canvasSize(m);
+  const int keysHeight = m.rows * m.keyHeight + (m.rows - 1) * gap;
+  const int segment = face - m.keyCount();
+  const int segmentWidth = canvas.width() / std::max(1, m.encoders);
+  return {
+      segment * segmentWidth, keysHeight + gap, segmentWidth,
+      canvas.height() - keysHeight - gap};
+}
+
 Deck::Deck(const Model& model, const ossia::net::hid_device_configuration& conf)
     : m_model{model}
 {
   m_hid.open(conf);
   m_keyState.resize(m_model.keyCount() + m_model.touchKeys);
   m_encoderState.resize(m_model.encoders);
-  m_faces.resize(faceCount());
-  m_cache.resize(faceCount());
+  m_faces.resize(faceCount(m_model));
+  m_lastTiles.resize(faceCount(m_model));
 }
 
 Deck::~Deck()
@@ -74,7 +114,7 @@ void Deck::stop()
   if(m_worker.joinable())
     m_worker.join();
 
-  if(m_hid.is_open())
+  if(m_hid.is_open() && !m_unplugged)
     m_hid.send_feature_report(resetReport(m_model));
   m_hid.close();
 }
@@ -120,25 +160,29 @@ std::string Deck::firmware()
   return readString(firmwareReport(m_model));
 }
 
-int Deck::faceCount() const noexcept
-{
-  if(!m_model.hasDisplay())
-    return 0;
-  return m_model.keyCount() + (m_model.hasLcd() ? m_model.encoders : 0);
-}
-
-void Deck::setFace(int index, const Face& f)
-{
-  updateFace(index, [&](Face& face) { face = f; });
-}
-
-void Deck::clear()
+void Deck::setFace(int index, const Style& f)
 {
   std::lock_guard lock{m_mutex};
-  for(auto& f : m_faces)
+  if(index < 0 || index >= int(m_faces.size()))
+    return;
+  auto& face = m_faces[index];
+  if(face.face == f && !face.dirty)
+    return;
+  face.face = f;
+  face.dirty = true;
+  m_cv.notify_one();
+}
+
+void Deck::setTextureMask(std::vector<bool> mask)
+{
+  std::lock_guard lock{m_mutex};
+  for(std::size_t i = 0; i < m_faces.size(); i++)
   {
-    f.face = Face{};
-    f.dirty = true;
+    const bool t = i < mask.size() && mask[i];
+    if(t == m_faces[i].texture)
+      continue;
+    m_faces[i].texture = t;
+    m_faces[i].dirty = !t;
   }
   m_cv.notify_one();
 }
@@ -150,59 +194,12 @@ void Deck::setBrightness(int percent)
   m_cv.notify_one();
 }
 
-QSize Deck::faceSize(int index) const noexcept
+void Deck::submitFrame(const QImage& frame)
 {
-  if(index < m_model.keyCount())
-    return {m_model.keyWidth, m_model.keyHeight};
-  return {m_model.lcdWidth / std::max(1, m_model.encoders), m_model.lcdHeight};
-}
-
-QSize canvasSize(const Model& m) noexcept
-{
-  if(!m.hasDisplay())
-    return {};
-  const int gap = gapFor(m);
-  const int w = m.columns * m.keyWidth + (m.columns - 1) * gap;
-  int h = m.rows * m.keyHeight + (m.rows - 1) * gap;
-  if(m.hasLcd())
-    h += gap + w * m.lcdHeight / m.lcdWidth;
-  return {w, h};
-}
-
-QSize Deck::canvasSize() const noexcept
-{
-  return StreamDeck::canvasSize(m_model);
-}
-
-QRect Deck::tileRect(int index) const noexcept
-{
-  const int gap = gapFor(m_model);
-  if(index < m_model.keyCount())
-  {
-    const int col = index % m_model.columns;
-    const int row = index / m_model.columns;
-    return {
-        col * (m_model.keyWidth + gap), row * (m_model.keyHeight + gap),
-        m_model.keyWidth, m_model.keyHeight};
-  }
-
-  const auto canvas = canvasSize();
-  const int keysHeight = m_model.rows * m_model.keyHeight + (m_model.rows - 1) * gap;
-  const int segment = index - m_model.keyCount();
-  const int segmentWidth = canvas.width() / std::max(1, m_model.encoders);
-  return {
-      segment * segmentWidth, keysHeight + gap, segmentWidth,
-      canvas.height() - keysHeight - gap};
-}
-
-void Deck::submitFrame(const uint8_t* rgba, int width, int height, int bytesPerLine)
-{
-  if(width != canvasSize().width() || height != canvasSize().height())
+  if(frame.size() != canvasSize(m_model))
     return;
-
-  QImage frame{rgba, width, height, bytesPerLine, QImage::Format_RGBA8888};
   std::lock_guard lock{m_mutex};
-  m_pendingFrame = frame.copy();
+  m_pendingFrame = frame;
   m_cv.notify_one();
 }
 
@@ -257,63 +254,11 @@ void Deck::onInput(std::span<const uint8_t> report)
   }
 }
 
-QImage Deck::renderFace(const Face& f, WorkerCache& cache, QSize size)
-{
-  QImage img{size, QImage::Format_ARGB32_Premultiplied};
-  img.fill(f.background);
-
-  QPainter p{&img};
-  p.setRenderHint(QPainter::Antialiasing);
-  p.setRenderHint(QPainter::SmoothPixmapTransform);
-
-  if(f.imagePath != cache.path)
-  {
-    cache.path = f.imagePath;
-    cache.image = f.imagePath.isEmpty() ? QImage{} : QImage{f.imagePath};
-  }
-  if(!cache.image.isNull())
-  {
-    auto scaled = cache.image.scaled(
-        size, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
-    p.drawImage(
-        (size.width() - scaled.width()) / 2, (size.height() - scaled.height()) / 2,
-        scaled);
-  }
-
-  if(!f.text.isEmpty())
-  {
-    const int margin = std::max(2, size.width() / 16);
-    const QRect area = img.rect().adjusted(margin, margin, -margin, -margin);
-    constexpr int flags = Qt::AlignCenter | Qt::TextWordWrap;
-
-    QFont font;
-    font.setBold(true);
-    int px = f.textSize > 0 ? f.textSize : std::max(8, size.height() * 3 / 10);
-    font.setPixelSize(px);
-    if(f.textSize <= 0)
-    {
-      while(px > 8)
-      {
-        const auto r = QFontMetrics{font}.boundingRect(area, flags, f.text);
-        if(r.width() <= area.width() && r.height() <= area.height())
-          break;
-        font.setPixelSize(--px);
-      }
-    }
-    p.setFont(font);
-    p.setPen(f.textColor);
-    p.drawText(area, flags, f.text);
-  }
-
-  return img;
-}
-
 void Deck::upload(int index, const QImage& img)
 {
-  const auto oriented = orient(img, m_model);
   if(index < m_model.keyCount())
   {
-    const auto bytes = encode(oriented, m_model.format);
+    const auto bytes = encode(orient(img, m_model), m_model.format);
     for(const auto& r : keyImageReports(
             m_model, index,
             {reinterpret_cast<const uint8_t*>(bytes.constData()), std::size_t(bytes.size())}))
@@ -323,7 +268,7 @@ void Deck::upload(int index, const QImage& img)
   {
     const auto bytes = encode(img, ImageFormat::JPEG);
     const int segment = index - m_model.keyCount();
-    const auto sz = faceSize(index);
+    const auto sz = faceSize(m_model, index);
     for(const auto& r : lcdImageReports(
             m_model, segment * sz.width(), 0, sz.width(), sz.height(),
             {reinterpret_cast<const uint8_t*>(bytes.constData()), std::size_t(bytes.size())}))
@@ -335,7 +280,8 @@ void Deck::workerLoop()
 {
   for(;;)
   {
-    std::vector<std::pair<int, Face>> faces;
+    std::vector<std::pair<int, Style>> faces;
+    std::vector<bool> textured;
     QImage frame;
     std::optional<int> brightness;
     {
@@ -343,7 +289,7 @@ void Deck::workerLoop()
       m_cv.wait(lock, [this] {
         return m_stop || m_pendingBrightness || !m_pendingFrame.isNull()
                || std::any_of(m_faces.begin(), m_faces.end(), [](const auto& f) {
-          return f.dirty;
+          return f.dirty && !f.texture;
         });
       });
       if(m_stop)
@@ -351,12 +297,16 @@ void Deck::workerLoop()
 
       brightness = std::exchange(m_pendingBrightness, std::nullopt);
       std::swap(frame, m_pendingFrame);
+      textured.resize(m_faces.size());
       for(int i = 0; i < int(m_faces.size()); i++)
       {
-        if(m_faces[i].dirty)
+        auto& f = m_faces[i];
+        textured[i] = f.texture;
+        if(f.dirty && !f.texture)
         {
-          faces.emplace_back(i, m_faces[i].face);
-          m_faces[i].dirty = false;
+          faces.emplace_back(i, f.face);
+          f.dirty = false;
+          m_lastTiles[i] = QImage{};
         }
       }
     }
@@ -365,19 +315,22 @@ void Deck::workerLoop()
       m_hid.send_feature_report(brightnessReport(m_model, *brightness));
 
     for(auto& [index, face] : faces)
-      upload(index, renderFace(face, m_cache[index], faceSize(index)));
+      upload(index, renderStyle(face, faceSize(m_model, index), m_images));
 
     if(!frame.isNull())
     {
-      for(int i = 0; i < int(m_cache.size()); i++)
+      for(int i = 0; i < int(textured.size()); i++)
       {
-        auto tile = frame.copy(tileRect(i));
-        if(tile.size() != faceSize(i))
-          tile = tile.scaled(faceSize(i), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-        if(tile == m_cache[i].lastTile)
+        if(!textured[i])
+          continue;
+        auto tile = frame.copy(tileRect(m_model, i));
+        const auto sz = faceSize(m_model, i);
+        if(tile.size() != sz)
+          tile = tile.scaled(sz, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        if(tile == m_lastTiles[i])
           continue;
         upload(i, tile);
-        m_cache[i].lastTile = std::move(tile);
+        m_lastTiles[i] = std::move(tile);
       }
     }
   }

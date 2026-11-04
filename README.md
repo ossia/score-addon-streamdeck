@@ -6,36 +6,55 @@ The deck is talked to directly over HID (through libossia's `ossia::net::hid_dev
 itself built on SDL's HID API): the Elgato software does not need to be installed,
 and should not be running at the same time, as both would draw on the keys.
 
+## The Stream Deck panel
+
+*View ▸ Stream Deck* (Ctrl+Shift+J) lays out the decks of the document. The deck
+does not need to be plugged: the layout runs in score, the panel shows it, and the
+deck picks it up when it is connected. Every edit can be undone, and applies to the
+running deck at once.
+
+- **Pages**: add, rename, duplicate, reorder; double-click a page to show it on the
+  deck. A *video* page shows the texture sent to the device on its keys.
+- **Look** of a key: text (with live values: `$(device:/address)`, `$(page)`),
+  colours, text size and position, an image (or drop an image file on the key), and
+  a different look while the key is pressed or switched on.
+- **Actions**, on press and on release (or when switched on and off for a toggle
+  key): send a value, toggle a boolean, step a number within its range, go to a
+  page, next / previous page; each can be delayed. Presets for the transport
+  (play, pause, stop, back to start).
+- **Hold to fire**: the key has to be held for a while before anything happens.
+- **Feedbacks**: the key changes its look while a value of the document is on,
+  off, equal to, above or below something (e.g. green while `score:/running`).
+- **Dials** of the Stream Deck +: an address to turn, a step, a press action, and
+  what the touch strip shows above the dial.
+- **Test** mode: operate the deck from the panel, without the hardware.
+- Drop an address from the Device Explorer on a key to control it: a boolean
+  becomes a toggle that lights up while on, an impulse a trigger, anything else a
+  key that sends its current value and shows the live one.
+- Right-click a key to copy, paste, clear it, or to make it a transport or page key.
+
 ## Device tree
 
-| Address | Type | |
+| Address | | |
 |---|---|---|
-| `deck:/` | texture | Connect a video output here: it is cut into the key images |
-| `/key/N/pressed` | bool | |
-| `/key/N/color` | rgba | Key background |
-| `/key/N/text`, `/key/N/text_color`, `/key/N/text_size` | | `text_size` 0 fits the text to the key |
-| `/key/N/image` | string | Path to an image, scaled to cover the key |
+| `deck:/` | texture | Shown on the keys of video pages |
+| `/page` | int | The page on the deck, from 1; writable |
+| `/key/N/pressed` | bool | The physical key, whatever the page; writing it presses the key |
+| `/pages/P/key/N/pressed` | bool | Key N, only while page P is shown |
+| `/pages/P/key/N/color`, `text`, `text_color`, `image` | | Change a key at run time; an empty text or a transparent colour goes back to the layout |
 | `/brightness` | int, 0–100 | |
-| `/clear` | impulse | Blanks every key |
 | `/encoder/N/pressed`, `/encoder/N/turn`, `/encoder/N/position` | | Stream Deck + |
-| `/lcd/N/...` | | Stream Deck +: one face per dial, on the touch strip |
 | `/touch/tap`, `/touch/long_press`, `/touch/swipe` | | Stream Deck +, in strip pixels |
 | `/touch_key/N/pressed` | bool | Stream Deck Neo |
 | `/info/model`, `/info/serial`, `/info/firmware` | string | |
 
-A key shows whatever changed last: a parameter write, or a change in its part of
-the texture. A texture that does not change does not overwrite the parameters.
-
-The texture is the keys laid out on their grid, with a gap of a quarter of a key
-between them (and, on the Stream Deck +, the touch strip below). Its size is shown
-in the device's settings.
-
 ## Remote control mode
 
-The bottom row is the transport (play, stop, previous / next bank and, with five
-columns or more, the time). The other keys, and the dials of the Stream Deck +,
-show the controls of the selected process: a press toggles a boolean, fires an
-impulse, or adds 10 % to a number; a dial turn moves its control by 1 % per step.
+Set in the device's settings. The bottom row is the transport (play, stop,
+previous / next bank and, with five columns or more, the time). The other keys,
+and the dials of the Stream Deck +, show the controls of the selected process: a
+press toggles a boolean, fires an impulse, or adds 10 % to a number; a dial turn
+moves its control by 1 % per step.
 
 ## Models
 

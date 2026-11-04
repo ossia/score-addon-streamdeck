@@ -5,12 +5,12 @@
 #include <Gfx/Graph/RenderState.hpp>
 #include <Gfx/InvertYRenderer.hpp>
 
-#include <StreamDeck/Deck.hpp>
+#include <StreamDeck/FrameSink.hpp>
 
 namespace StreamDeck
 {
-OutputNode::OutputNode(std::weak_ptr<Deck> deck, QSize canvas, double rate)
-    : m_deck{std::move(deck)}
+OutputNode::OutputNode(std::shared_ptr<FrameSink> sink, QSize canvas, double rate)
+    : m_sink{std::move(sink)}
     , m_canvas{canvas.isEmpty() ? QSize{1, 1} : canvas}
     , m_rate{rate}
     , m_enabled{!canvas.isEmpty()}
@@ -54,10 +54,9 @@ void OutputNode::render()
   if(m_readback.data.size() < sz.width() * sz.height() * 4)
     return;
 
-  if(auto deck = m_deck.lock())
-    deck->submitFrame(
-        reinterpret_cast<const uint8_t*>(m_readback.data.constData()), sz.width(),
-        sz.height(), sz.width() * 4);
+  m_sink->submit(
+      reinterpret_cast<const uint8_t*>(m_readback.data.constData()), sz.width(),
+      sz.height(), sz.width() * 4);
 }
 
 score::gfx::OutputNode::Configuration OutputNode::configuration() const noexcept

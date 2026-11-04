@@ -41,11 +41,11 @@ ProtocolSettingsWidget::ProtocolSettingsWidget(QWidget* parent)
   row->addWidget(refresh);
 
   m_mode = new QComboBox{this};
-  m_mode->addItem(tr("Parameters"), int(SpecificSettings::Parameters));
+  m_mode->addItem(tr("Buttons"), int(SpecificSettings::Buttons));
   m_mode->addItem(tr("Remote control"), int(SpecificSettings::RemoteControl));
   score::setHelp(
-      m_mode, tr("Parameters: every key, dial and the touch strip are device "
-                 "parameters, and the device takes a texture.\n"
+      m_mode, tr("Buttons: the keys are laid out in the Stream Deck panel, with "
+                 "pages, actions and feedbacks.\n"
                  "Remote control: the bottom row is the transport, the other keys "
                  "and the dials show the controls of the selected process."));
 

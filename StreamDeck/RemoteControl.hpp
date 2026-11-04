@@ -15,7 +15,7 @@ struct DocumentContext;
 
 namespace StreamDeck
 {
-class Deck;
+class Engine;
 
 //! Drives a deck from score's remote control interface: transport keys on
 //! the bottom row, the controls of the selected process on the other keys
@@ -23,7 +23,7 @@ class Deck;
 class RemoteControl final : public QObject
 {
 public:
-  RemoteControl(const score::DocumentContext& doc, std::shared_ptr<Deck> deck);
+  RemoteControl(const score::DocumentContext& doc, Engine& engine);
   ~RemoteControl() override;
 
   //! Main thread only.
@@ -63,7 +63,7 @@ private:
   Mapped* find(Handle h);
 
   const score::DocumentContext& m_doc;
-  std::shared_ptr<Deck> m_deck;
+  Engine& m_engine;
   std::shared_ptr<Process::RemoteControlInterface> m_rc;
 
   std::vector<Action> m_actions;

@@ -1,4 +1,6 @@
 #pragma once
+#include <StreamDeck/Layout.hpp>
+
 #include <QString>
 
 #include <verdigris>
@@ -9,16 +11,24 @@ struct SpecificSettings
 {
   enum Mode : int
   {
-    Parameters = 0,
+    Buttons = 0,
     RemoteControl = 1
   };
 
   QString path;
   QString serial;
   int productId{};
-  int mode{Parameters};
+  int mode{Buttons};
   int brightness{70};
   double rate{30.};
+  Layout layout;
+
+  //! Whether these settings open another deck, or another kind of deck.
+  bool sameDeck(const SpecificSettings& o) const noexcept
+  {
+    return path == o.path && serial == o.serial && productId == o.productId
+           && rate == o.rate;
+  }
 };
 }
 

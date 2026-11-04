@@ -1,12 +1,12 @@
 #pragma once
+#include <StreamDeck/Layout.hpp>
 #include <StreamDeck/Model.hpp>
+#include <StreamDeck/Render.hpp>
 
 #include <ossia/protocols/hid/hid_device.hpp>
 
-#include <QColor>
 #include <QImage>
 #include <QRect>
-#include <QString>
 
 #include <atomic>
 #include <condition_variable>
@@ -18,26 +18,21 @@
 
 namespace StreamDeck
 {
-//! What a key, or a segment of the LCD strip, shows.
-struct Face
-{
-  QColor background{Qt::black};
-  QString text;
-  QColor textColor{Qt::white};
-  //! Pixels; 0 picks a size that fits.
-  int textSize{};
-  QString imagePath;
-};
+//! Keys, then one face per segment of the touch strip.
+int faceCount(const Model& m) noexcept;
+QSize faceSize(const Model& m, int face) noexcept;
 
-//! The size of the texture the keys of a model are cut from.
+//! The size of the texture the keys of a model are cut from, and where each
+//! face sits in it.
 QSize canvasSize(const Model& m) noexcept;
+QRect tileRect(const Model& m, int face) noexcept;
 
 /**
  * An open Stream Deck.
  *
- * Faces and texture frames can be set from any thread; a worker thread
- * renders and uploads what changed. Input callbacks are called from the HID
- * reader thread.
+ * Faces, the texture mask and texture frames can be set from any thread; a
+ * worker thread renders and uploads what changed. Input callbacks are called
+ * from the HID reader thread.
  */
 class Deck
 {
@@ -67,48 +62,25 @@ public:
   std::string serial();
   std::string firmware();
 
-  //! Index: 0..keyCount()-1 for keys, then one per LCD segment.
-  int faceCount() const noexcept;
-  void setFace(int index, const Face& f);
-  template <typename F>
-  void updateFace(int index, F&& f)
-  {
-    std::lock_guard lock{m_mutex};
-    if(index < 0 || index >= int(m_faces.size()))
-      return;
-    f(m_faces[index].face);
-    m_faces[index].dirty = true;
-    m_cv.notify_one();
-  }
-
-  void clear();
+  void setFace(int index, const Style& f);
+  //! Faces for which this is true show their tile of the texture instead.
+  void setTextureMask(std::vector<bool> mask);
   void setBrightness(int percent);
 
-  //! The size of the texture the keys are cut from.
-  QSize canvasSize() const noexcept;
   //! RGBA8, top-left origin, of canvasSize().
-  void submitFrame(const uint8_t* rgba, int width, int height, int bytesPerLine);
+  void submitFrame(const QImage& frame);
 
 private:
   struct FaceState
   {
-    Face face;
+    Style face;
     bool dirty{true};
-  };
-
-  struct WorkerCache
-  {
-    QImage image;
-    QString path;
-    QImage lastTile;
+    bool texture{};
   };
 
   void onInput(std::span<const uint8_t> report);
   void workerLoop();
-  QImage renderFace(const Face& f, WorkerCache& cache, QSize size);
   void upload(int index, const QImage& img);
-  QRect tileRect(int index) const noexcept;
-  QSize faceSize(int index) const noexcept;
   std::string readString(StringReport r);
 
   const Model& m_model;
@@ -121,11 +93,13 @@ private:
   std::mutex m_mutex;
   std::condition_variable m_cv;
   std::vector<FaceState> m_faces;
-  std::vector<WorkerCache> m_cache;
   std::optional<int> m_pendingBrightness;
   QImage m_pendingFrame;
   bool m_stop{};
   std::atomic_bool m_unplugged{false};
   std::thread m_worker;
+
+  ImageCache m_images;
+  std::vector<QImage> m_lastTiles;
 };
 }

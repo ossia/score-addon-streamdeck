@@ -6,7 +6,7 @@
 #include <ossia/detail/flicks.hpp>
 #include <ossia/network/value/value_conversion.hpp>
 
-#include <StreamDeck/Deck.hpp>
+#include <StreamDeck/Engine.hpp>
 
 namespace StreamDeck
 {
@@ -48,9 +48,9 @@ QString formatValue(const ossia::value& v)
 }
 }
 
-RemoteControl::RemoteControl(const score::DocumentContext& doc, std::shared_ptr<Deck> deck)
+RemoteControl::RemoteControl(const score::DocumentContext& doc, Engine& engine)
     : m_doc{doc}
-    , m_deck{std::move(deck)}
+    , m_engine{engine}
 {
   auto& providers = score::AppContext().interfaces<Process::RemoteControlProviderList>();
   if(providers.empty())
@@ -84,7 +84,7 @@ RemoteControl::~RemoteControl()
 void RemoteControl::layout()
 {
   using hint = Process::RemoteControlInterface::ControllerHint;
-  const auto& model = m_deck->model();
+  const auto& model = m_engine.model();
   const int keys = model.keyCount();
 
   m_actions.assign(keys, Action::Control);
@@ -136,7 +136,8 @@ void RemoteControl::layout()
     }
   }
 
-  m_deck->clear();
+  for(int i = 0; i < m_engine.faceCount(); i++)
+    m_engine.display(i, Style{});
   for(int i = 0; i < keys; i++)
     drawAction(i, m_actions[i]);
   for(auto& c : m_keyControls)
@@ -147,17 +148,17 @@ void RemoteControl::layout()
 
 void RemoteControl::drawAction(int key, Action a)
 {
-  Face f;
+  Style f;
   f.background = actionBackground;
   switch(a)
   {
     case Action::Play:
       f.text = QStringLiteral("▶");
-      f.textSize = m_deck->model().keyHeight / 2;
+      f.textSize = m_engine.model().keyHeight / 2;
       break;
     case Action::Stop:
       f.text = QStringLiteral("■");
-      f.textSize = m_deck->model().keyHeight / 2;
+      f.textSize = m_engine.model().keyHeight / 2;
       break;
     case Action::PreviousBank:
       f.text = QStringLiteral("◀ bank");
@@ -179,22 +180,22 @@ void RemoteControl::drawAction(int key, Action a)
     case Action::Control:
       return;
   }
-  m_deck->setFace(key, f);
+  m_engine.display(key, f);
 }
 
 void RemoteControl::drawControl(const Mapped& m, bool highlight)
 {
-  Face f;
+  Style f;
   if(m.name.isEmpty())
   {
-    m_deck->setFace(m.face, f);
+    m_engine.display(m.face, f);
     return;
   }
 
   const bool on = m.value.target<bool>() && *m.value.target<bool>();
   f.background = highlight || on ? activeBackground : controlBackground;
   f.text = m.name + QStringLiteral("\n") + formatValue(m.value);
-  m_deck->setFace(m.face, f);
+  m_engine.display(m.face, f);
 }
 
 RemoteControl::Mapped* RemoteControl::find(Handle h)
@@ -239,7 +240,9 @@ void RemoteControl::onTransport(ossia::time_value t)
   if(text == m_timeText)
     return;
   m_timeText = text;
-  m_deck->updateFace(m_timeKey, [&](Face& f) { f.text = text; });
+  auto face = m_engine.face(m_timeKey);
+  face.text = text;
+  m_engine.display(m_timeKey, face);
 }
 
 void RemoteControl::onKey(int key, bool pressed)

@@ -10,14 +10,13 @@ class QRhiTextureRenderTarget;
 
 namespace StreamDeck
 {
-class Deck;
+class FrameSink;
 
 //! Renders what is connected to the device's root into a texture of the
-//! deck's canvas size, then hands each frame to the deck, which cuts it into
-//! key images.
+//! deck's canvas size, and hands each frame to the device's frame sink.
 struct OutputNode final : score::gfx::OutputNode
 {
-  OutputNode(std::weak_ptr<Deck> deck, QSize canvas, double rate);
+  OutputNode(std::shared_ptr<FrameSink> sink, QSize canvas, double rate);
   ~OutputNode() override;
 
   void startRendering() override;
@@ -38,7 +37,7 @@ struct OutputNode final : score::gfx::OutputNode
   Configuration configuration() const noexcept override;
 
 private:
-  std::weak_ptr<Deck> m_deck;
+  std::shared_ptr<FrameSink> m_sink;
   QSize m_canvas;
   double m_rate{};
   bool m_enabled{};
