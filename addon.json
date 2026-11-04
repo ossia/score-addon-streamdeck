@@ -1,0 +1,11 @@
+{
+  "src": "<url to the .zip file created by the release script>",
+  "name": "Stream Deck",
+  "raw_name": "score-addon-streamdeck",
+  "version": "1.0",
+  "kind": "addon",
+  "short": "Elgato Stream Deck support",
+  "long": "Keys, dials and touch strip as device parameters, key faces driven by parameters or by a texture, and a remote control mode for score's transport and the selected process's controls.",
+  "small": "https://raw.githubusercontent.com/OSSIA/score-addon-tutorial/master/Deployment/icon.png",
+  "key": "a11ec039-8e7a-48ac-be34-8cdc2d240ce8"
+}
