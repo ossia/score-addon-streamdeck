@@ -18,11 +18,6 @@ class RemoteControl;
 class deck_device;
 struct Model;
 
-/**
- * A Stream Deck in the document. It exists, with its tree and its layout
- * running, whether or not the deck is plugged: the deck is attached when it
- * shows up and detached when it goes away.
- */
 class DeckDevice final : public Gfx::GfxOutputDevice
 {
   W_OBJECT(DeckDevice)

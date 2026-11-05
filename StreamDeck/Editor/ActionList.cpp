@@ -54,9 +54,6 @@ QLineEdit* deckNameEdit(const QString& prefix, const QString& name, QWidget* par
   auto e = new QLineEdit{parent};
   e->setText(name);
   e->setPlaceholderText(QObject::tr("name"));
-  e->setToolTip(QObject::tr(
-      "The address is created in the deck's tree, at %1<name>: map it to anything, "
-      "differently along the score.").arg(prefix));
   return e;
 }
 
@@ -86,7 +83,7 @@ void clearLayout(QVBoxLayout* l)
 }
 
 const char* const action_labels[] = {
-    QT_TRANSLATE_NOOP("StreamDeck", "Send value"),
+    QT_TRANSLATE_NOOP("StreamDeck", "Send"),
     QT_TRANSLATE_NOOP("StreamDeck", "Toggle"),
     QT_TRANSLATE_NOOP("StreamDeck", "Step"),
     QT_TRANSLATE_NOOP("StreamDeck", "Go to page"),
@@ -137,10 +134,10 @@ ActionList::ActionList(const score::DocumentContext& ctx, QWidget* parent)
     rebuild();
     commit();
   };
-  menu->addAction(tr("Trigger: an impulse at an address of the deck"), this, [=] {
+  menu->addAction(tr("Trigger (impulse)"), this, [=] {
     addTrigger(false);
   });
-  menu->addAction(tr("Trigger: an on / off address of the deck"), this, [=] {
+  menu->addAction(tr("Trigger (on / off)"), this, [=] {
     addTrigger(true);
   });
   menu->addSeparator();
@@ -225,7 +222,6 @@ QWidget* ActionList::makeRow(int i)
   delay->setSpecialValueText(tr("at once"));
   delay->setKeyboardTracking(false);
   delay->setValue(a.delay);
-  delay->setToolTip(tr("Delay before the action runs"));
   connect(delay, &QSpinBox::valueChanged, this, [this, i](int v) {
     m_actions[i].delay = v;
     commit();
@@ -282,7 +278,7 @@ QWidget* ActionList::makeRow(int i)
   {
     case Action::Send: {
       auto value = new QLineEdit{row};
-      value->setPlaceholderText(tr("Value: 1, 0.5, true, \"text\", [1, 2]…"));
+      value->setPlaceholderText(tr("Value"));
       value->setText(valueToString(a.value));
       connect(value, &QLineEdit::editingFinished, this, [this, i, value] {
         auto v = valueFromString(value->text());
@@ -316,9 +312,6 @@ QWidget* ActionList::makeRow(int i)
       auto mode = new QComboBox{row};
       mode->addItem(tr("Impulse"));
       mode->addItem(tr("On / off"));
-      mode->setToolTip(
-          tr("Impulse: each press sends an impulse.\nOn / off: each press switches a "
-             "boolean, and the key looks pressed while it is on."));
       mode->setCurrentIndex(a.toggle ? 1 : 0);
       lay->addWidget(mode);
       connect(name, &QLineEdit::editingFinished, this, [this, i, name] {
@@ -340,9 +333,7 @@ QWidget* ActionList::makeRow(int i)
     case Action::Script: {
       auto code = codeEditor(
           a.script,
-          tr("JavaScript, run in the console's engine. For instance:\n"
-             "Device.write(\"osc:/light\", 1);\n"
-             "if(deck.page() == 1) deck.nextPage();"),
+          tr("JavaScript"),
           row);
       connect(
           code, &TextField::editingFinished, this,
@@ -425,14 +416,9 @@ QWidget* FeedbackList::makeRow(int i)
   grid->setVerticalSpacing(4);
 
   auto source = new QComboBox{row};
-  source->addItem(tr("While an address of the score"));
-  source->addItem(tr("While an input of the deck"));
-  source->addItem(tr("While a script"));
-  source->setToolTip(
-      tr("An address of the score: any address of the Device Explorer.\n"
-         "An input of the deck: an address created in the deck's tree, at "
-         "deck:/feedbacks/<name>, made to be mapped to along the score.\n"
-         "A script: a JavaScript expression."));
+  source->addItem(tr("Address"));
+  source->addItem(tr("Deck input"));
+  source->addItem(tr("Script"));
   source->setCurrentIndex(!f.needsAddress() ? 2 : f.deckInput ? 1 : 0);
   grid->addWidget(source, 0, 0, 1, 2);
 
@@ -479,8 +465,7 @@ QWidget* FeedbackList::makeRow(int i)
     case 2: {
       auto expr = new QLineEdit{row};
       expr->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-      expr->setPlaceholderText(tr("Device.read(\"osc:/level\") > 0.5"));
-      expr->setToolTip(tr("A JavaScript expression, run in the console's engine."));
+      expr->setPlaceholderText(tr("JavaScript expression"));
       expr->setText(f.script);
       connect(expr, &QLineEdit::editingFinished, this, [this, i, expr] {
         if(m_feedbacks[i].script == expr->text())
@@ -542,8 +527,7 @@ QWidget* FeedbackList::makeRow(int i)
     m_feedbacks[i].style = style->value();
     commit();
   });
-  grid->addWidget(new QLabel{tr("the key looks like:"), row}, 3, 0, 1, 3);
-  grid->addWidget(style, 4, 0, 1, 3);
+  grid->addWidget(style, 3, 0, 1, 3);
   grid->setColumnStretch(1, 1);
   protectFromWheel(row);
   return row;
@@ -564,8 +548,7 @@ OverrideEditor::OverrideEditor(QWidget* parent)
   m_textColor->setColor(Qt::white);
   m_useText = new QCheckBox{tr("Text"), this};
   m_text = new QLineEdit{this};
-  m_text->setPlaceholderText(tr("unchanged"));
-  setToolTip(tr("Tick what changes; the rest stays as the key's own look."));
+  m_text->setPlaceholderText(tr("Unchanged"));
 
   lay->addWidget(m_useBackground, 0, 0);
   lay->addWidget(m_background, 0, 1);

@@ -2,7 +2,6 @@
 
 #include <State/Widgets/AddressFragmentLineEdit.hpp>
 
-#include <score/widgets/HelpInteraction.hpp>
 
 #include <ossia/protocols/hid/hid_device.hpp>
 
@@ -43,11 +42,6 @@ ProtocolSettingsWidget::ProtocolSettingsWidget(QWidget* parent)
   m_mode = new QComboBox{this};
   m_mode->addItem(tr("Buttons"), int(SpecificSettings::Buttons));
   m_mode->addItem(tr("Remote control"), int(SpecificSettings::RemoteControl));
-  score::setHelp(
-      m_mode, tr("Buttons: the keys are laid out in the Stream Deck panel, with "
-                 "pages, actions and feedbacks.\n"
-                 "Remote control: the bottom row is the transport, the other keys "
-                 "and the dials show the controls of the selected process."));
 
   m_brightness = new QSpinBox{this};
   m_brightness->setRange(0, 100);
@@ -58,7 +52,6 @@ ProtocolSettingsWidget::ProtocolSettingsWidget(QWidget* parent)
   m_rate->setRange(1., 60.);
   m_rate->setSuffix(" fps");
   m_rate->setValue(30.);
-  score::setHelp(m_rate, tr("How often a texture sent to the device is rendered."));
 
   m_details = new QLabel{this};
   m_details->setWordWrap(true);
@@ -155,7 +148,7 @@ void ProtocolSettingsWidget::updateDetails()
   const Model* m = findModel(uint16_t(set.vendorId), uint16_t(set.productId));
   if(!m)
   {
-    m_details->setText(tr("No Stream Deck connected."));
+    m_details->setText(tr("No deck connected"));
     return;
   }
 
@@ -170,7 +163,7 @@ void ProtocolSettingsWidget::updateDetails()
     txt += QStringLiteral("\n")
            + tr("Texture: %1 × %2 px").arg(canvas.width()).arg(canvas.height());
   if(!m->verified)
-    txt += QStringLiteral("\n") + tr("This model has not been tested with score yet.");
+    txt += QStringLiteral("\n") + tr("Untested model");
   m_details->setText(txt);
 }
 

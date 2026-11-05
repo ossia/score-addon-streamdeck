@@ -15,14 +15,6 @@ namespace StreamDeck
 {
 class Engine;
 
-/**
- * The device tree of a Stream Deck. The root takes a texture; the children
- * are the current page, the keys as they are pressed, a few run-time fields
- * of each button of each page, and the dials, touch strip and settings.
- *
- * Writes are handed to the engine, on the main thread; the engine reports
- * presses and page changes back through the notify functions.
- */
 class deck_protocol final : public Gfx::gfx_protocol_base
 {
 public:

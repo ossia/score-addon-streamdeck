@@ -29,7 +29,6 @@ score::GUIElements ApplicationPlugin::makeGUIElements()
   auto act = new QAction{tr("Stream Deck..."), this};
   act->setShortcut(tr("Ctrl+Shift+J"));
   act->setShortcutContext(Qt::ApplicationShortcut);
-  act->setToolTip(tr("Lay out the pages and keys of the Stream Decks of the document"));
   connect(act, &QAction::triggered, this, [this] { showEditor(); });
   context.menus.get().at(score::Menus::Windows()).menu()->addAction(act);
   return {};

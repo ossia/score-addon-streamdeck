@@ -57,13 +57,7 @@ TextField* textField(QWidget* parent)
   t->setTabChangesFocus(true);
   t->setFixedHeight(t->fontMetrics().lineSpacing() * 3 + 10);
   t->setPlaceholderText(QObject::tr("Text"));
-  t->setToolTip(QObject::tr(
-      "The text of the key. Parts written ${like this} are JavaScript, run in the "
-      "same engine as the console:\n\n"
-      "  ${Device.read(\"osc:/level\")}\n"
-      "  ${Number(Device.read(\"osc:/level\")).toFixed(2)}\n"
-      "  ${deck.pageName()}  ${deck.page()} / ${deck.pageCount()}\n"
-      "  ${new Date().toLocaleTimeString()}"));
+  t->setToolTip(QObject::tr("${...}: JavaScript"));
   return t;
 }
 
@@ -189,9 +183,6 @@ QWidget* ButtonEditor::makeButtonForm()
   auto bform = new QFormLayout;
   m_mode = new QComboBox{aw};
   m_mode->addItems({tr("Momentary"), tr("Toggle")});
-  m_mode->setToolTip(
-      tr("Momentary: actions on press and on release.\n"
-         "Toggle: each press switches the key on or off."));
   bform->addRow(tr("Mode"), m_mode);
   m_hold = new QSpinBox{aw};
   m_hold->setRange(0, 10000);
@@ -199,9 +190,7 @@ QWidget* ButtonEditor::makeButtonForm()
   m_hold->setSuffix(tr(" ms"));
   m_hold->setSpecialValueText(tr("No"));
   m_hold->setKeyboardTracking(false);
-  m_hold->setToolTip(tr("The key must be held this long before anything happens: a "
-                        "safety for keys that must not be hit by accident."));
-  bform->addRow(tr("Hold to fire"), m_hold);
+  bform->addRow(tr("Hold for"), m_hold);
   alay->addLayout(bform);
 
   m_pressLabel = section({}, aw);
@@ -216,13 +205,6 @@ QWidget* ButtonEditor::makeButtonForm()
   alay->addStretch(1);
 
   auto [fw, flay] = page(tr("Feedbacks"));
-  auto fbHelp = new QLabel{
-      tr("Change the look of the key while an address of the score, an input of the "
-         "deck or a script matches. The last matching feedback wins."),
-      fw};
-  fbHelp->setWordWrap(true);
-  fbHelp->setEnabled(false);
-  flay->addWidget(fbHelp);
   m_feedbacks = new FeedbackList{m_ctx, fw};
   flay->addWidget(m_feedbacks);
   flay->addStretch(1);
@@ -275,7 +257,7 @@ QWidget* ButtonEditor::makeDialForm()
   m_dialError = errorLabel(w);
   lay->addWidget(m_dialError);
 
-  lay->addWidget(section(tr("Turning"), w));
+  lay->addWidget(section(tr("Address"), w));
   m_dialAddress = new Process::AddressAccessorEditWidget{m_ctx, w};
   lay->addWidget(m_dialAddress);
   m_dialStep = new QDoubleSpinBox{w};
@@ -287,7 +269,7 @@ QWidget* ButtonEditor::makeDialForm()
 
   lay->addWidget(section(tr("Strip"), w));
   m_dialText = textField(w);
-  m_dialText->setPlaceholderText(tr("Empty: the name of the address and its value"));
+  m_dialText->setPlaceholderText(tr("Address and value"));
   lay->addWidget(m_dialText);
   auto colors = new QHBoxLayout;
   m_dialBackground = new ColorButton{w};
@@ -323,10 +305,9 @@ QWidget* ButtonEditor::makeDialForm()
 void ButtonEditor::updateModeLabels()
 {
   const bool toggle = m_mode->currentIndex() == Button::Toggle;
-  m_activeLabel->setText(
-      toggle ? tr("Look while on") : tr("Look while pressed, or while its trigger is on"));
-  m_pressLabel->setText(toggle ? tr("When switched on") : tr("On press"));
-  m_releaseLabel->setText(toggle ? tr("When switched off") : tr("On release"));
+  m_activeLabel->setText(toggle ? tr("While on") : tr("While pressed"));
+  m_pressLabel->setText(toggle ? tr("On") : tr("On press"));
+  m_releaseLabel->setText(toggle ? tr("Off") : tr("On release"));
 }
 
 void ButtonEditor::setScriptError(const QString& error)

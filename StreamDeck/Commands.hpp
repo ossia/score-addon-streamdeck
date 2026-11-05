@@ -7,8 +7,6 @@ namespace StreamDeck
 {
 const CommandGroupKey& CommandFactoryName();
 
-//! Changes the settings of a Stream Deck device, its layout included, without
-//! reconnecting it.
 class EditDeck final : public score::Command
 {
   SCORE_COMMAND_DECL(CommandFactoryName(), EditDeck, "Edit Stream Deck")

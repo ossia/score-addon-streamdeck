@@ -12,8 +12,6 @@ namespace StreamDeck
 {
 class FrameSink;
 
-//! Renders what is connected to the device's root into a texture of the
-//! deck's canvas size, and hands each frame to the device's frame sink.
 struct OutputNode final : score::gfx::OutputNode
 {
   OutputNode(std::shared_ptr<FrameSink> sink, QSize canvas, double rate);

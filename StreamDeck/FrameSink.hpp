@@ -8,8 +8,6 @@ namespace StreamDeck
 {
 class Deck;
 
-//! Where the device's texture goes: the deck when one is plugged, and the
-//! last frame, which the editor shows.
 class FrameSink
 {
 public:

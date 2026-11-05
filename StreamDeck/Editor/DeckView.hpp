@@ -8,14 +8,6 @@
 
 namespace StreamDeck
 {
-/**
- * The keys of a deck, drawn as they look. Faces are the keys, then one per
- * dial (its strip segment and knob).
- *
- * Editing: a click selects, a drag moves a key (copies it with Ctrl), files
- * and addresses can be dropped on a key. In test mode, clicks press the keys
- * and the mouse wheel turns the dials.
- */
 class DeckView final : public QWidget
 {
   W_OBJECT(DeckView)

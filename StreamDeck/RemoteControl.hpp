@@ -17,9 +17,6 @@ namespace StreamDeck
 {
 class Engine;
 
-//! Drives a deck from score's remote control interface: transport keys on
-//! the bottom row, the controls of the selected process on the other keys
-//! and on the dials.
 class RemoteControl final : public QObject
 {
 public:

@@ -90,7 +90,6 @@ std::span<const Model> models() noexcept;
 const Model* findModel(uint16_t vendorId, uint16_t productId) noexcept;
 bool isKnownVendor(uint16_t vendorId) noexcept;
 
-//! A report to send: an output report, or a feature report.
 struct Report
 {
   bool feature{};
@@ -132,9 +131,7 @@ std::vector<Report> openReports(const Model& m);
 //! Sent before the deck is closed.
 std::vector<Report> closeReports(const Model& m);
 
-//! Upload an encoded key image.
 std::vector<Report> keyImageReports(const Model& m, int key, std::span<const uint8_t> image);
-//! Upload an encoded image to a segment of the LCD strip.
 std::vector<Report>
 stripImageReports(const Model& m, int segment, std::span<const uint8_t> image);
 //! Sent after a batch of images, for the deck to show them.

@@ -32,11 +32,6 @@ class Scripts;
 ossia::net::parameter_base*
 resolveAddress(const score::DocumentContext& ctx, const QString& address);
 
-/**
- * Runs a layout: which page is shown, what each key looks like, what a press
- * does. Lives on the main thread, and runs whether or not a deck is plugged:
- * the editor's emulator presses and shows the same keys.
- */
 class Engine final : public QObject
 {
   W_OBJECT(Engine)
@@ -61,9 +56,7 @@ public:
   bool isPressed(int key) const;
   bool isTexture(int face) const;
 
-  //! What a face of any page looks like now, as the deck would show it.
   Style preview(int page, int face);
-  //! The last error of the scripts of a face of a page, if any.
   QString scriptError(int page, int face) const;
 
   void press(int key, bool down);
@@ -84,7 +77,6 @@ public:
   std::function<void(int key, bool pressed)> onKey;
   std::function<void(int page, int key, bool pressed)> onButton;
   std::function<void(int page)> onPage;
-  //! The addresses of the deck itself that the layout made, by path.
   std::function<ossia::net::parameter_base*(const QString&)> deckParameter;
   std::function<void(ossia::net::parameter_base*, const ossia::value&)> writeDeck;
 

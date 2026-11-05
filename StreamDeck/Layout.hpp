@@ -17,7 +17,6 @@ enum class Align : uint8_t
   Bottom
 };
 
-//! What a key looks like.
 struct Style
 {
   QColor background{Qt::black};
@@ -49,19 +48,13 @@ struct Action
 {
   enum Type : uint8_t
   {
-    //! Writes `value` to `address`.
     Send,
-    //! Inverts the boolean at `address`.
     Toggle,
-    //! Adds `step` to the number at `address`, within its domain.
     Step,
     GotoPage,
     NextPage,
     PreviousPage,
-    //! Runs `script` in score's JavaScript console engine.
     Script,
-    //! Writes to deck:/actions/`address`, an address of the deck itself made
-    //! to be mapped: an impulse, or a boolean that each press flips.
     Trigger,
   };
 
@@ -90,7 +83,6 @@ struct Feedback
     NotEqual,
     Greater,
     Less,
-    //! `script` is a JavaScript expression.
     Script
   };
 
@@ -98,8 +90,6 @@ struct Feedback
   Condition condition{IsTrue};
   ossia::value value;
   QString script;
-  //! `address` is a name under deck:/feedbacks/: an input of the deck itself,
-  //! made to be mapped to.
   bool deckInput{};
 
   QString deckAddress() const { return QStringLiteral("feedbacks/") + address; }
@@ -114,9 +104,7 @@ struct Button
 {
   enum Mode : uint8_t
   {
-    //! Press actions on press, release actions on release.
     Momentary,
-    //! Each press flips the button: "on" actions, then "off" actions.
     Toggle
   };
 
@@ -134,7 +122,6 @@ struct Button
   bool operator==(const Button&) const = default;
 };
 
-//! A dial of a Stream Deck +, and its segment of the touch strip.
 struct Dial
 {
   QString address;
@@ -149,7 +136,6 @@ struct Dial
 struct Page
 {
   QString name;
-  //! The keys show their part of the texture sent to the device.
   bool texture{};
   std::vector<Button> buttons;
   std::vector<Dial> dials;

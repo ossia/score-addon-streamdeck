@@ -41,14 +41,12 @@ protected:
   void focusOutEvent(QFocusEvent* e) override;
 };
 
-//! The inspector of the key or dial selected in the editor.
 class ButtonEditor final : public QWidget
 {
   W_OBJECT(ButtonEditor)
 public:
   ButtonEditor(const score::DocumentContext& ctx, QWidget* parent = nullptr);
 
-  //! defaultName: for the addresses its actions and feedbacks create.
   void showButton(
       const QString& title, const Button& b, QStringList pages, QString defaultName);
   void showDial(

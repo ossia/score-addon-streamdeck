@@ -11,7 +11,6 @@ namespace StreamDeck
 {
 class Engine;
 
-//! What scripts see as `deck`.
 class DeckObject final : public QObject
 {
   W_OBJECT(DeckObject)
@@ -45,12 +44,6 @@ private:
   Engine& m_engine;
 };
 
-/**
- * Runs the JavaScript of a layout in score's console engine, so that it sees
- * the same `Score`, `Device`, `Util` objects as the console and --script.
- *
- * Every snippet is a function of `deck` and `key`, the key's number from 1.
- */
 class Scripts
 {
 public:
@@ -59,12 +52,10 @@ public:
 
   static bool isTemplate(const QString& text) noexcept;
 
-  //! The text of a key: itself, or the result of the template literal it is.
   QString text(const QString& text, int key, QString& error);
   bool condition(const QString& expr, int key, QString& error);
   void run(const QString& code, int key, QString& error);
 
-  //! Forgets the compiled snippets.
   void clear();
 
 private:

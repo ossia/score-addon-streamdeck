@@ -17,7 +17,6 @@ namespace StreamDeck
 {
 class ColorButton;
 
-//! Edits a list of actions: what a key does when pressed or released.
 class ActionList final : public QWidget
 {
   W_OBJECT(ActionList)
@@ -41,7 +40,6 @@ private:
   QVBoxLayout* m_rows{};
 };
 
-//! Edits the feedbacks of a key: how its look follows a value of the document.
 class FeedbackList final : public QWidget
 {
   W_OBJECT(FeedbackList)
@@ -64,7 +62,6 @@ private:
   QVBoxLayout* m_rows{};
 };
 
-//! Edits the fields of a style that a state replaces.
 class OverrideEditor final : public QWidget
 {
   W_OBJECT(OverrideEditor)

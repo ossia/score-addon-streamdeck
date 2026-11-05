@@ -19,13 +19,7 @@
 
 namespace StreamDeck
 {
-/**
- * An open Stream Deck.
- *
- * Faces, the texture mask and texture frames can be set from any thread; a
- * worker thread renders and uploads what changed. Input callbacks are called
- * from the HID reader thread.
- */
+//! Faces and frames can be set from any thread; input callbacks run on the HID thread.
 class Deck
 {
 public:

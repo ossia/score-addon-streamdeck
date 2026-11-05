@@ -246,11 +246,6 @@ void DeckView::paintEvent(QPaintEvent*)
     p.drawEllipse(r);
   }
 
-  if(m_test)
-  {
-    p.setPen(accent);
-    p.drawText(g.body.adjusted(8, 2, -8, -2), Qt::AlignTop | Qt::AlignRight, tr("TEST"));
-  }
 }
 
 void DeckView::mousePressEvent(QMouseEvent* e)

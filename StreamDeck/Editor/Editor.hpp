@@ -27,12 +27,6 @@ class DeckDevice;
 class DeckView;
 struct Model;
 
-/**
- * The Stream Deck editor window: pick a deck of the document, lay out its
- * pages, set what each key shows and does, and try it without the hardware.
- *
- * Every change is an undoable command, applied to the running device at once.
- */
 class Editor final : public QWidget
 {
   W_OBJECT(Editor)
@@ -101,13 +95,13 @@ private:
   QLabel* m_status{};
   QPushButton* m_test{};
   QSlider* m_brightness{};
+  QLabel* m_brightnessValue{};
   QListWidget* m_pages{};
   QPushButton* m_pageUp{};
   QPushButton* m_pageDown{};
   QPushButton* m_pageRemove{};
   QCheckBox* m_pageTexture{};
   DeckView* m_view{};
-  QLabel* m_hint{};
   ButtonEditor* m_inspector{};
   QSplitter* m_split{};
   QWidget* m_body{};

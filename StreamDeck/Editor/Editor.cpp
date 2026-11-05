@@ -114,12 +114,6 @@ Button navigationButton(Action::Type t, int page, const QString& name)
   return b;
 }
 
-QPushButton* button(const QString& text, const QString& tip, QWidget* parent)
-{
-  auto b = new QPushButton{text, parent};
-  b->setToolTip(tip);
-  return b;
-}
 }
 
 Editor::Editor(QWidget* parent)
@@ -166,9 +160,6 @@ void Editor::build()
 
   m_test = new QPushButton{tr("Try it"), this};
   m_test->setCheckable(true);
-  m_test->setToolTip(
-      tr("Operate the deck from this window: clicking a key presses it, on the page "
-         "shown on the deck; the mouse wheel turns the dials."));
   top->addWidget(m_test);
   top->addSpacing(12);
   top->addWidget(new QLabel{tr("Brightness"), this});
@@ -176,11 +167,12 @@ void Editor::build()
   m_brightness->setRange(0, 100);
   m_brightness->setFixedWidth(140);
   top->addWidget(m_brightness);
-  auto brightnessValue = new QLabel{this};
-  brightnessValue->setMinimumWidth(brightnessValue->fontMetrics().horizontalAdvance("100 %"));
-  top->addWidget(brightnessValue);
-  connect(m_brightness, &QSlider::valueChanged, brightnessValue, [brightnessValue](int v) {
-    brightnessValue->setText(QStringLiteral("%1 %").arg(v));
+  m_brightnessValue = new QLabel{this};
+  m_brightnessValue->setMinimumWidth(
+      m_brightnessValue->fontMetrics().horizontalAdvance(QStringLiteral("100 %")));
+  top->addWidget(m_brightnessValue);
+  connect(m_brightness, &QSlider::valueChanged, m_brightnessValue, [this](int v) {
+    m_brightnessValue->setText(QStringLiteral("%1 %").arg(v));
   });
   lay->addLayout(top);
 
@@ -208,17 +200,15 @@ void Editor::build()
   m_pages = new QListWidget{pagesPane};
   m_pages->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
   m_pages->setContextMenuPolicy(Qt::CustomContextMenu);
-  m_pages->setToolTip(
-      tr("The selected page is the one on the deck.\nDouble-click to rename a page."));
   pagesLay->addWidget(m_pages, 1);
 
   auto pageButtons = new QGridLayout;
   pageButtons->setSpacing(2);
-  auto add = button(tr("Add"), tr("Add a page"), pagesPane);
-  auto dup = button(tr("Duplicate"), tr("Duplicate the page"), pagesPane);
-  m_pageRemove = button(tr("Delete"), tr("Delete the page"), pagesPane);
-  m_pageUp = button(tr("Move up"), tr("Move the page up"), pagesPane);
-  m_pageDown = button(tr("Move down"), tr("Move the page down"), pagesPane);
+  auto add = new QPushButton{tr("Add"), pagesPane};
+  auto dup = new QPushButton{tr("Duplicate"), pagesPane};
+  m_pageRemove = new QPushButton{tr("Delete"), pagesPane};
+  m_pageUp = new QPushButton{tr("Move up"), pagesPane};
+  m_pageDown = new QPushButton{tr("Move down"), pagesPane};
   pageButtons->addWidget(add, 0, 0);
   pageButtons->addWidget(dup, 0, 1);
   pageButtons->addWidget(m_pageUp, 1, 0);
@@ -226,24 +216,13 @@ void Editor::build()
   pageButtons->addWidget(m_pageRemove, 2, 0, 1, 2);
   pagesLay->addLayout(pageButtons);
   m_pageTexture = new QCheckBox{tr("Video page"), pagesPane};
-  m_pageTexture->setToolTip(
-      tr("The keys of this page show their part of the texture sent to the device, "
-         "instead of their own look. They still run their actions."));
+  m_pageTexture->setToolTip(tr("The keys show the texture sent to the device"));
   pagesLay->addWidget(m_pageTexture);
 
-  auto center = new QWidget{split};
-  auto centerLay = new QVBoxLayout{center};
-  centerLay->setContentsMargins(0, 0, 0, 0);
-  m_view = new DeckView{center};
-  centerLay->addWidget(m_view, 1);
-  m_hint = new QLabel{center};
-  m_hint->setWordWrap(true);
-  m_hint->setAlignment(Qt::AlignCenter);
-  m_hint->setEnabled(false);
-  centerLay->addWidget(m_hint);
+  m_view = new DeckView{split};
 
   split->addWidget(pagesPane);
-  split->addWidget(center);
+  split->addWidget(m_view);
   split->setStretchFactor(0, 0);
   split->setStretchFactor(1, 1);
   split->setCollapsible(1, false);
@@ -255,7 +234,6 @@ void Editor::build()
     setDevice(dynamic_cast<DeckDevice*>(list.findDevice(m_devices->itemText(i))));
   });
   connect(m_test, &QPushButton::toggled, this, [this](bool t) {
-    m_test->setText(t ? tr("■ Stop trying") : tr("Try it"));
     m_view->setTestMode(t);
     if(t)
       selectPage(livePage());
@@ -412,7 +390,7 @@ void Editor::setDevice(DeckDevice* dev)
 
   if(dev)
   {
-    setWindowTitle(tr("Stream Deck — %1").arg(dev->settings().name));
+    setWindowTitle(tr("Stream Deck: %1").arg(dev->settings().name));
     m_deviceConnections.push_back(
         connect(dev, &DeckDevice::settingsApplied, this, &Editor::reload));
     m_deviceConnections.push_back(
@@ -485,6 +463,7 @@ void Editor::reload()
   {
     QSignalBlocker b{m_brightness};
     m_brightness->setValue(m_settings.brightness);
+    m_brightnessValue->setText(QStringLiteral("%1 %").arg(m_settings.brightness));
   }
   refreshStatus();
   refreshPages();
@@ -519,40 +498,23 @@ void Editor::refreshStatus()
 
   if(!m_ctx)
   {
-    m_empty->setText(tr("No document is open."));
+    m_empty->setText(tr("No document"));
     m_status->clear();
     return;
   }
   if(!hasDevice)
   {
-    m_empty->setText(
-        tr("This document has no Stream Deck.\n\nAdd one in the Device Explorer: "
-           "click +, then Hardware ▸ Stream Deck. The deck does not need to be "
-           "plugged in to lay it out."));
+    m_empty->setText(tr("No Stream Deck in this document"));
     m_status->clear();
     return;
   }
 
   const auto& m = modelFor(m_settings);
   QString txt = QString::fromUtf8(m.name.data(), m.name.size());
-  if(m_device->hardwareConnected())
-    txt = QStringLiteral("<span style='color:#5c5'>●</span> ") + txt.toHtmlEscaped()
-          + tr(", connected");
-  else
-    txt = QStringLiteral("<span style='color:#888'>○</span> ") + txt.toHtmlEscaped()
-          + tr(", not plugged in: the layout runs without it");
+  txt += m_device->hardwareConnected() ? tr(", connected") : tr(", not connected");
   if(!buttons)
-    txt += tr(" · remote control mode");
+    txt += tr(", remote control mode");
   m_status->setText(txt);
-
-  if(m_test->isChecked())
-    m_hint->setText(
-        tr("Trying it: clicking a key presses it on the deck's current page. The "
-           "wheel turns the dials."));
-  else
-    m_hint->setText(
-        tr("Click a key to edit it · drag it to move it, with Ctrl to copy it · drop "
-           "an address or an image file on a key · right-click for presets"));
 }
 
 void Editor::refreshPages()
@@ -653,10 +615,7 @@ void Editor::refreshInspector()
   }
   if(m_settings.mode == SpecificSettings::RemoteControl)
   {
-    m_inspector->showMessage(
-        tr("This deck is in remote control mode: its keys show the transport and the "
-           "controls of the selected process.\n\nSwitch it to Buttons mode in the "
-           "device's settings to lay it out here."));
+    m_inspector->showMessage(tr("Remote control mode"));
     return;
   }
 
@@ -664,14 +623,8 @@ void Editor::refreshInspector()
   const auto pages = pageNames();
   if(m_selected >= 0 && m_selected < m->keyCount())
   {
-    const int row = m_selected / m->columns + 1;
-    const int col = m_selected % m->columns + 1;
     m_inspector->showButton(
-        tr("Key %1 · row %2, column %3 · %4")
-            .arg(m_selected + 1)
-            .arg(row)
-            .arg(col)
-            .arg(pages.value(m_page)),
+        tr("Key %1").arg(m_selected + 1),
         page.buttons[m_selected], pages,
         deckPath(pages.value(m_page) + QStringLiteral("/key") + QString::number(m_selected + 1)));
   }
@@ -679,15 +632,12 @@ void Editor::refreshInspector()
   {
     const int d = m_selected - m->keyCount();
     m_inspector->showDial(
-        tr("Dial %1 · %2").arg(d + 1).arg(pages.value(m_page)), page.dials[d], pages,
+        tr("Dial %1").arg(d + 1), page.dials[d], pages,
         deckPath(pages.value(m_page) + QStringLiteral("/dial") + QString::number(d + 1)));
   }
   else
   {
-    m_inspector->showMessage(
-        tr("Select a key to set what it shows and what it does.\n\n"
-           "Drop an address from the Device Explorer on a key to control it, or an "
-           "image file to show it."));
+    m_inspector->showMessage(tr("Select a key"));
   }
 }
 
@@ -847,7 +797,7 @@ void Editor::onContextMenu(int face, QPoint global)
   const auto name = deckPath(
       names0.value(m_page) + QStringLiteral("/key") + QString::number(face + 1));
   auto trigger = menu.addMenu(tr("Trigger"));
-  trigger->addAction(tr("Impulse at deck:/actions/%1").arg(name), this, [set, name] {
+  trigger->addAction(tr("Impulse"), this, [set, name] {
     Button b;
     b.style.text = name.section(QChar{'/'}, -1);
     b.style.background = QColor{0x26, 0x32, 0x38};
@@ -855,7 +805,7 @@ void Editor::onContextMenu(int face, QPoint global)
     b.press = {{.type = Action::Trigger, .address = name}};
     set(b);
   });
-  trigger->addAction(tr("On / off at deck:/actions/%1").arg(name), this, [set, name] {
+  trigger->addAction(tr("On / off"), this, [set, name] {
     Button b;
     b.style.text = name.section(QChar{'/'}, -1);
     b.style.background = QColor{0x26, 0x32, 0x38};
