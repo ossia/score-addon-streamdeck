@@ -7,6 +7,7 @@
 #include <score/command/Dispatchers/CommandDispatcher.hpp>
 #include <score/document/DocumentContext.hpp>
 
+#include <ossia/network/base/device.hpp>
 #include <ossia/network/base/parameter.hpp>
 
 #include <StreamDeck/Commands.hpp>

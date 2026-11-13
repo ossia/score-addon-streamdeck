@@ -6,7 +6,7 @@ Documentation: [Stream Deck device](https://ossia.io/score-docs/devices/streamde
 
 ## Building
 
-Build it as part of score: clone it into `score/src/addons`. It needs score's HID support (`OSSIA_PROTOCOL_HID`).
+Build it as part of score: clone it into `score/src/addons`. It needs score's HID support (`OSSIA_PROTOCOL_HID`) and a libossia checkout providing `ossia/protocols/hid/hid_device.hpp`.
 
 With `SCORE_TESTING`, `score_addon_streamdeck_models` checks every model of the table in `StreamDeck/Model.cpp`.
 
